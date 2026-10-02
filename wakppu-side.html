@@ -36,6 +36,7 @@ canvas{display:block;width:100%;height:100%;touch-action:none;outline:none}
 .overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px;gap:10px;text-align:center;background:color-mix(in srgb,var(--tray) 74%,transparent);backdrop-filter:blur(4px)}
 .overlay[hidden],.overlay [hidden]{display:none}
 .overlay{overflow-y:auto;justify-content:safe center}
+.overlay > *{flex-shrink:0}
 .overlay h2{font-family:"Jua",sans-serif;font-weight:400;font-size:clamp(28px,5vw,42px);margin:0}
 .overlay p{margin:0;color:var(--soft);line-height:1.6;max-width:32em}
 .keys{display:flex;gap:18px;flex-wrap:wrap;justify-content:center;font-size:14px;color:var(--soft)}
@@ -48,6 +49,14 @@ button{font:inherit}
 .go2{font-family:"Jua",sans-serif;font-size:17px;color:var(--ink);background:none;border:1.5px solid var(--line);border-radius:999px;padding:9px 22px;margin-top:6px;cursor:pointer}
 .go2:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
 .best{font-family:"Jua",sans-serif;font-size:18px;color:var(--ink)}
+.chars{display:flex;gap:8px;overflow-x:auto;max-width:100%;padding:4px 2px;scrollbar-width:thin}
+.char{flex:0 0 auto;width:98px;background:var(--tray);border:1.5px solid var(--line);border-radius:14px;padding:6px 4px 8px;font:inherit;color:var(--ink);cursor:pointer;text-align:center}
+.char[aria-checked="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.char:disabled{opacity:.45;cursor:default}
+.char:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.char canvas{width:48px;height:56px;display:block;margin:0 auto 2px}
+.char b{display:block;font-family:"Jua",sans-serif;font-size:14px;font-weight:400}
+.char small{display:block;font-size:11px;color:var(--soft);line-height:1.3}
 .touch{display:none}
 .touch.on{display:block}
 .pad{position:absolute;bottom:16px;width:74px;height:74px;border-radius:50%;border:2px solid rgba(255,255,255,.7);background:rgba(255,255,255,.35);color:#2A2140;font-family:"Jua",sans-serif;font-size:26px;touch-action:none}
@@ -56,7 +65,7 @@ button{font:inherit}
 footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;color:var(--soft);font-size:13px;line-height:1.5}
 .mute{background:none;border:1.5px solid var(--line);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap}
 .mute:disabled{opacity:.4;cursor:default}
-@media (max-width:600px){ header p{font-size:13px} .stage{aspect-ratio:4/3} .hud b{font-size:17px} .overlay{padding:14px;gap:8px} .overlay p{font-size:13px;line-height:1.45} .overlay .keys{display:none} .go{font-size:19px;padding:9px 30px} .go2{font-size:15px;padding:7px 16px} }
+@media (max-width:600px){ header p{font-size:13px} .stage{aspect-ratio:4/3} .hud b{font-size:17px} .overlay{padding:14px;gap:8px} .overlay p{font-size:13px;line-height:1.45} .overlay .keys,#ovText{display:none} .char{width:86px} .go{font-size:19px;padding:9px 30px} .go2{font-size:15px;padding:7px 16px} }
 </style>
 </head>
 <body>
@@ -90,6 +99,7 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
         <span><kbd>A</kbd> <kbd>D</kbd> 또는 <kbd>←</kbd> <kbd>→</kbd> 이동</span>
         <span><kbd>Space</kbd> 점프 · 공중에서 한 번 더 2단 점프</span>
       </div>
+      <div class="chars" id="chars" role="radiogroup" aria-label="캐릭터"></div>
       <div class="best" id="bestLine" hidden></div>
       <div class="btns">
         <button class="go" id="go">시작하기</button>
@@ -106,6 +116,13 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
 
 <script>
 (() => {
+// 캐릭터 해금 도입(v2) 때 이전 진행 기록을 한 번 초기화
+try{
+  if(localStorage.getItem('wakppu-side-ver')!=='2'){
+    Object.keys(localStorage).filter(k=>k.startsWith('wakppu-side')).forEach(k=>localStorage.removeItem(k));
+    localStorage.setItem('wakppu-side-ver','2');
+  }
+}catch(e){}
 const $ = id => document.getElementById(id);
 const TAU = Math.PI*2;
 const stage = $('stage'), cv = $('cv'), ctx = cv.getContext('2d');
@@ -679,17 +696,22 @@ const ITEM = {magnet:{name:'자석', icon:'🧲', dur:6}, giant:{name:'거대화
 const items = {magnet:0, giant:0, boost:0};
 let trail=[];
 const tough = () => items.giant>0 || items.boost>0;   // 장애물을 부수며 지나감
+// 단단 왁뿌 보호막: 한 번 막고 1초 무적
+function useShield(){ if(!P.shield) return false; P.shield=false; P.inv=1; toast('보호막!'); return true; }
+const chargeShield = () => { P.shield = charId==='tough'; };
 function useItem(k){ items[k]=ITEM[k].dur; toast(ITEM[k].name+'!'); play('item'); }
 function updateItems(dt){
   if(combo>0 && (comboT-=dt)<=0) breakCombo();
   for(const k in items) items[k]=Math.max(0, items[k]-dt);
   P.sc += ((items.giant>0 ? 1.8 : 1) - P.sc)*Math.min(1, dt*8);
-  if(items.magnet>0){
+  const magR = items.magnet>0 ? 170 : charId==='magnet' ? 80 : 0;   // 자석 아이템 / 자석 왁뿌
+  if(P.inv>0) P.inv-=dt;
+  if(magR){
     const cy=P.y-PH*P.sc/2;
     for(const j of jellies){
       if(j.taken || j.item) continue;
       const x=jx(j), y=jy(j), dx=P.x-x, dy=cy-y, d=Math.hypot(dx,dy);
-      if(d>170) continue;
+      if(d>magR) continue;
       j.pl=null; j.x=x+dx/d*Math.min(d,620*dt); j.y=y+dy/d*Math.min(d,620*dt);
     }
   }
@@ -746,7 +768,7 @@ function collectJellies(){
       const m=comboMult(combo);
       if(m>comboMult(combo-1)){ toast('×'+m+' 콤보!'); play('check'); }
       if(combo>bestCombo){ bestCombo=combo; try{ localStorage.setItem('wakppu-side-combo',String(bestCombo)); }catch(e){} }
-      const pts=jellyPts(j.big)*m; score+=pts;
+      const pts=Math.round(jellyPts(j.big)*m*(charId==='sweet' ? 1.3 : 1)); score+=pts;
       pops.push({x, y, txt:'+'+pts, life:.7, big:j.big});
       for(let k=0;k<(j.big?12:4);k++) dust.push({x,y,vx:rnd(-90,90),vy:rnd(-140,-20),life:rnd(.2,.45),col:j.big?'#FFD23F':'#FF8FC4',s:rnd(1.5,3)});
       j.big ? play('bigJelly') : play('bling');
@@ -792,7 +814,7 @@ function buildCourse(){
 }
 
 /* ---------------- 상태 ---------------- */
-const P = {sc:1,x:0,y:0,vx:0,vy:0,ground:null,coyote:0,jumpBuf:0,face:1,walk:0,stepT:0,jumps:0,spin:0,maxX:0};
+const P = {sc:1,inv:0,shield:false,x:0,y:0,vx:0,vy:0,ground:null,coyote:0,jumpBuf:0,face:1,walk:0,stepT:0,jumps:0,spin:0,maxX:0};
 const PW=11, PH=46, SPEED=295, JUMP=-760, JUMP2=-690, GRAV=2100;
 let state='ready', elapsed=0, shardCount=0, falls=0, maxIdx=0, checkpoint=null, seen=new Set(), camX=0, camY=0, clock=0, lastHeal=0;
 let shards=[], dust=[];
@@ -808,7 +830,9 @@ function nextStage(g){
   level++; CFG=stageCfg(level); loadBest(); stageT0=elapsed;
   if(builtLevel<level) appendStage();
   checkpoint=g; startX=g.x+60; goalX=goals[level].x; P.maxX=P.x;
+  const newChar = level>savedStage && CHARS.find(c=>c.at===level);
   if(level>savedStage){ savedStage=level; try{ localStorage.setItem('wakppu-side-stage',String(savedStage)); }catch(e){} }
+  chargeShield();
   // 지나온 체크포인트 뒤쪽 발판 정리
   plats = plats.filter(p => p.x+p.tp.w > g.x-600);
   jellies = jellies.filter(j => !j.taken && (j.pl ? plats.includes(j.pl) : j.x > g.x-600));
@@ -818,6 +842,7 @@ function nextStage(g){
   if(rec) msgs.unshift('기록 갱신! '+t.toFixed(1)+'초');
   if(level>1 && newPatsOf(level).length) msgs.push('새 발판 등장!');
   if(newHazOf(level).length) msgs.push('새 장애물 등장!');
+  if(newChar) msgs.push('새 캐릭터 해금: '+newChar.name+'!');
   msgs.forEach((m,i)=>setTimeout(()=>{ if(state==='play') toast(m); }, i*1200));
 }
 
@@ -902,6 +927,10 @@ addEventListener('keydown', e => {
   if(![...LEFT,...RIGHT,...JUMPK].includes(k)) return;
   if(state!=='play'){
     if(k==='Space' && !(document.activeElement instanceof HTMLButtonElement)){ e.preventDefault(); go.click(); }
+    else if(LEFT.includes(k)||RIGHT.includes(k)){
+      e.preventDefault(); const open=CHARS.filter(unlocked), i=open.findIndex(c=>c.id===charId);
+      setChar(open[Math.max(0,Math.min(open.length-1,i+(RIGHT.includes(k)?1:-1)))].id);
+    }
     return;
   }
   e.preventDefault(); keys.add(k);
@@ -945,8 +974,8 @@ function physics(dt){
       P.vy=JUMP; P.coyote=0; P.jumpBuf=0; P.jumps=1;
       if(P.ground) crush(P.ground, P.x, P.y, 18, .6, false);
       P.ground=null;
-    } else if(P.jumps<2){
-      P.vy=JUMP2; P.jumpBuf=0; P.jumps=2; P.spin=1;
+    } else if(P.jumps < (charId==='feather' ? 3 : 2)){   // 깃털 왁뿌는 3단 점프
+      P.vy = P.jumps>=2 ? JUMP2*.9 : JUMP2; P.jumpBuf=0; P.jumps++; P.spin=1;
       for(let k=0;k<10;k++) dust.push({x:P.x+rnd(-10,10),y:P.y,vx:rnd(-120,120),vy:rnd(20,140),life:rnd(.25,.45),col:'#FFFFFF',s:rnd(2,4)});
     }
   }
@@ -986,7 +1015,7 @@ function physics(dt){
     const cx=pl.x+pl.candle, cy=candleTop(pl);
     const W=PW*P.sc, H=PH*P.sc;
     if(P.x+W-3>cx-5 && P.x-W+3<cx+5 && P.y>cy-44 && P.y-H<cy){
-      if(tough()){ pl.candle=null; smash(cx,cy-20,'#FFB13D'); continue; }
+      if(tough() || P.inv>0 || useShield()){ pl.candle=null; smash(cx,cy-20,'#FFB13D'); continue; }
       falls++; play('burn'); buzz(60);
       for(let k=0;k<14;k++) dust.push({x:cx,y:cy-38,vx:rnd(-90,90),vy:rnd(-200,-40),life:rnd(.3,.6),col:'#FFB13D',s:rnd(2,4)});
       spawnAt(checkpoint); toast('앗 뜨거!'); return;
@@ -996,7 +1025,7 @@ function physics(dt){
     const hx=hzX(h); if(Math.abs(hx-P.x)>50) continue;
     const hy=hzY(h), r=h.r-2, W=PW*P.sc, H=PH*P.sc;
     if(P.x+W-3>hx-r && P.x-W+3<hx+r && P.y>hy-r && P.y-H<hy+r){
-      if(tough()){ hazards.splice(hazards.indexOf(h),1); smash(hx,hy,h.type==='candy'?'#E8333F':'#6B3B22'); break; }
+      if(tough() || P.inv>0 || useShield()){ hazards.splice(hazards.indexOf(h),1); smash(hx,hy,h.type==='candy'?'#E8333F':'#6B3B22'); break; }
       falls++; play('ouch'); buzz(60);
       for(let k=0;k<14;k++) dust.push({x:hx,y:hy,vx:rnd(-120,120),vy:rnd(-220,-40),life:rnd(.3,.6),col:h.type==='candy'?'#E8333F':'#6B3B22',s:rnd(2,4)});
       spawnAt(checkpoint); toast('아야!'); return;
@@ -1203,22 +1232,45 @@ function drawPlayerFx(){
   trail.forEach((q,i)=>{ ctx.globalAlpha=.08+i*.04; drawPlayer(q.x,q.y); });
   ctx.globalAlpha=1;
 }
+/* ---------------- 캐릭터 ---------------- */
+// at: 이 단계에 처음 도달하면 해금
+const CHARS = [
+  {id:'basic',   name:'기본 왁뿌', desc:'능력 없음',          at:1, c:{leg:'#5E2E8C', leg2:'#7A3FA8', arm:'#2F58B8', body:'#3E6FD8', hair:'#FF4B2E'}},
+  {id:'sweet',   name:'달콤 왁뿌', desc:'젤리 점수 +30%',     at:2, c:{leg:'#C2457A', leg2:'#E06C9F', arm:'#F07FB0', body:'#FF9CC8', hair:'#7A4630'}},
+  {id:'magnet',  name:'자석 왁뿌', desc:'항상 약한 자석',     at:3, c:{leg:'#5B6475', leg2:'#7B8597', arm:'#9AA3B5', body:'#B8C0CF', hair:'#2A2140'}},
+  {id:'feather', name:'깃털 왁뿌', desc:'3단 점프',           at:4, c:{leg:'#8FA3C9', leg2:'#B5C4E0', arm:'#DCE3F2', body:'#F4F6FB', hair:'#FFD23F'}},
+  {id:'tough',   name:'단단 왁뿌', desc:'단계마다 1번 보호막', at:5, c:{leg:'#4A2818', leg2:'#6B3B22', arm:'#86523A', body:'#9C6444', hair:'#2A2140'}}
+];
+let charId='basic'; try{ const v=localStorage.getItem('wakppu-side-char'); if(CHARS.some(c=>c.id===v)) charId=v; }catch(e){}
+const CH = () => CHARS.find(c=>c.id===charId);
+const unlocked = c => c.at <= savedStage;
+// 발이 (0,0)에 오도록 캐릭터를 그림
+function drawFigure(g, ch, sw, armUp){
+  const c=ch.c;
+  const limb=(px,py,w,h,ang,col)=>{ g.save(); g.translate(px,py); g.rotate(ang); g.fillStyle=col; g.fillRect(-w/2,0,w,h); g.restore(); };
+  limb(0,-17,8,17, -sw, c.leg);
+  limb(0,-36,7,16, sw*.9, c.arm);
+  g.fillStyle=c.body; g.fillRect(-8,-36,16,19);
+  limb(0,-17,8,17, sw, c.leg2);
+  g.fillStyle='#FFD9A8'; g.fillRect(-8,-52,16,16);
+  g.fillStyle=c.hair; g.fillRect(-9,-56,18,7); g.fillRect(-9,-52,7,11);
+  g.fillStyle='#2A2140'; g.fillRect(3,-47,2.5,4);
+  if(ch.id==='sweet'){ g.fillStyle='#FF5C8A'; g.beginPath(); g.moveTo(0,-57); g.lineTo(-9,-63); g.lineTo(-9,-53); g.closePath(); g.moveTo(0,-57); g.lineTo(9,-63); g.lineTo(9,-53); g.closePath(); g.fill(); g.fillRect(-2,-59,4,4); }
+  if(ch.id==='magnet'){ g.fillStyle='#8A93A6'; g.beginPath(); g.arc(0,-53,10,Math.PI,0); g.fill(); g.fillStyle='#E8333F'; g.fillRect(-2,-66,4,4); }
+  if(ch.id==='feather'){ g.fillStyle='#FFFFFF'; g.fillRect(-9,-58,18,4); g.strokeStyle='#5CC8FF'; g.lineWidth=3; g.lineCap='round'; g.beginPath(); g.moveTo(-4,-58); g.quadraticCurveTo(-10,-70,-2,-74); g.stroke(); }
+  if(ch.id==='tough'){ g.fillStyle='#6B4A2E'; g.fillRect(-10,-59,20,8); g.fillStyle='#C9A27E'; g.fillRect(-10,-52,3,6); g.beginPath(); g.moveTo(-6,-59); g.lineTo(-3,-66); g.lineTo(0,-59); g.fill(); }
+  limb(0,-36,7,16, armUp ? -2.4 : -sw*.9, c.body);
+}
 function drawPlayer(x=P.x, y=P.y){
   const f=P.face;
   const sw = P.ground ? Math.sin(P.walk)*.7 : .45;
   ctx.save(); ctx.translate(x,y); ctx.scale(P.sc,P.sc);
   if(P.spin>0){ ctx.translate(0,-26); ctx.rotate((1-P.spin)*TAU*f); ctx.translate(0,26); }
   ctx.scale(f,1);
-  const limb=(px,py,w,h,ang,col)=>{ ctx.save(); ctx.translate(px,py); ctx.rotate(ang); ctx.fillStyle=col; ctx.fillRect(-w/2,0,w,h); ctx.restore(); };
-  limb(0,-17,8,17, -sw, '#5E2E8C');
-  limb(0,-36,7,16, sw*.9, '#2F58B8');
-  ctx.fillStyle='#3E6FD8'; ctx.fillRect(-8,-36,16,19);
-  limb(0,-17,8,17, sw, '#7A3FA8');
-  ctx.fillStyle='#FFD9A8'; ctx.fillRect(-8,-52,16,16);
-  ctx.fillStyle='#FF4B2E'; ctx.fillRect(-9,-56,18,7); ctx.fillRect(-9,-52,7,11);
-  ctx.fillStyle='#2A2140'; ctx.fillRect(3,-47,2.5,4);
-  limb(0,-36,7,16, P.ground ? -sw*.9 : -2.4, '#3E6FD8');
+  if(P.inv>0 && (clock*16|0)%2) ctx.globalAlpha*=.4;
+  drawFigure(ctx, CH(), sw, !P.ground);
   ctx.restore();
+  if(P.shield){ ctx.strokeStyle=`rgba(255,210,63,${.55+.2*Math.sin(clock*5)})`; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y-PH*P.sc/2,34*P.sc,0,TAU); ctx.stroke(); }
 }
 function drawSlime(){
   const L=camX-10, Rr=camX+VW+10, B=camY+VH+10;
@@ -1266,13 +1318,35 @@ const ov=$('ov'), go=$('go'), go2=$('go2');
 let goTo=1, go2To=1;
 function start(){ initAudio(); reset(); state='play'; ov.hidden=true; $('restart').disabled=$('restart1').disabled=false; cv.focus(); }
 function startStage(n){
-  level=n; CFG=stageCfg(n); loadBest(); start();
+  level=n; CFG=stageCfg(n); loadBest(); start(); chargeShield(); P.inv=0;
   const msgs=[n+'단계'];
   if(n>1 && newPatsOf(n).length) msgs.push('새 발판 등장!');
   if(newHazOf(n).length) msgs.push('새 장애물 등장!');
   msgs.forEach((m,i)=>setTimeout(()=>{ if(state==='play') toast(m); }, i*1200));
 }
+function buildChars(){
+  const box=$('chars'); box.innerHTML='';
+  for(const ch of CHARS){
+    const b=document.createElement('button'); b.className='char'; b.setAttribute('role','radio'); b.dataset.id=ch.id;
+    const open=unlocked(ch); b.disabled=!open;
+    const c=document.createElement('canvas'); c.width=96; c.height=112;
+    const g=c.getContext('2d'); g.scale(2,2); g.translate(24,52); g.scale(.85,.85); drawFigure(g, ch, .3, false);
+    b.append(c);
+    b.insertAdjacentHTML('beforeend', `<b>${open ? ch.name : '🔒 '+ch.name}</b><small>${open ? ch.desc : ch.at+'단계 도달 시 해금'}</small>`);
+    b.addEventListener('click', ()=>setChar(ch.id));
+    box.append(b);
+  }
+  setChar(unlocked(CH()) ? charId : 'basic');
+}
+function setChar(id){
+  charId=id; try{ localStorage.setItem('wakppu-side-char',id); }catch(e){}
+  for(const b of $('chars').children){
+    const on=b.dataset.id===id; b.setAttribute('aria-checked',String(on)); b.tabIndex=on?0:-1;
+    if(on){ const box=$('chars'); box.scrollLeft = b.offsetLeft - (box.clientWidth-b.offsetWidth)/2; }
+  }
+}
 function showMenu(){
+  buildChars();
   goTo=savedStage; go2To=1;
   go.textContent = savedStage>1 ? `이어하기 (${savedStage}단계)` : '시작하기';
   go2.textContent='1단계부터'; go2.hidden = savedStage<=1;
@@ -1282,7 +1356,7 @@ go.addEventListener('click', ()=>startStage(goTo));
 go2.addEventListener('click', ()=>startStage(go2To));
 showMenu();
 function restart(){
-  initAudio(); reset(); state='play';
+  initAudio(); reset(); state='play'; chargeShield(); P.inv=0;
   ov.hidden=true; cv.focus(); toast(level+'단계 다시 시작!');
 }
 $('restart').addEventListener('click', restart);
