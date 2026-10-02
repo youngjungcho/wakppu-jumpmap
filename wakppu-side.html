@@ -50,11 +50,14 @@ button{font:inherit}
 .go2:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
 .best{font-family:"Jua",sans-serif;font-size:18px;color:var(--ink)}
 .chars{display:flex;gap:8px;overflow-x:auto;max-width:100%;padding:4px 2px;scrollbar-width:thin}
-.char{flex:0 0 auto;width:98px;background:var(--tray);border:1.5px solid var(--line);border-radius:14px;padding:6px 4px 8px;font:inherit;color:var(--ink);cursor:pointer;text-align:center}
+.char{flex:0 0 auto;width:112px;background:var(--tray);border:1.5px solid var(--line);border-radius:14px;padding:6px 4px 8px;font:inherit;color:var(--ink);cursor:pointer;text-align:center}
 .char[aria-checked="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .char:disabled{opacity:.45;cursor:default}
 .char:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
-.char canvas{width:48px;height:56px;display:block;margin:0 auto 2px}
+.char canvas{width:60px;height:70px;display:block;margin:0 auto 2px}
+.curchar{display:flex;align-items:center;gap:6px;font-family:"Jua",sans-serif;font-size:17px;color:var(--ink)}
+.curchar canvas{width:30px;height:35px}
+#charInfo{min-height:3em;color:var(--ink)}
 .char b{display:block;font-family:"Jua",sans-serif;font-size:14px;font-weight:400}
 .char small{display:block;font-size:11px;color:var(--soft);line-height:1.3}
 .touch{display:none}
@@ -65,7 +68,7 @@ button{font:inherit}
 footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;color:var(--soft);font-size:13px;line-height:1.5}
 .mute{background:none;border:1.5px solid var(--line);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap}
 .mute:disabled{opacity:.4;cursor:default}
-@media (max-width:600px){ header p{font-size:13px} .stage{aspect-ratio:4/3} .hud b{font-size:17px} .overlay{padding:14px;gap:8px} .overlay p{font-size:13px;line-height:1.45} .overlay .keys,#ovText{display:none} .char{width:86px} .go{font-size:19px;padding:9px 30px} .go2{font-size:15px;padding:7px 16px} }
+@media (max-width:600px){ header p{font-size:13px} .stage{aspect-ratio:4/3} .hud b{font-size:17px} .overlay{padding:14px;gap:8px} .overlay p{font-size:13px;line-height:1.45} .overlay .keys,#ovText{display:none} .char{width:86px} .char canvas{width:44px;height:52px} #charInfo{min-height:0;font-size:12px} .go{font-size:19px;padding:9px 30px} .go2{font-size:15px;padding:7px 16px} }
 </style>
 </head>
 <body>
@@ -83,6 +86,7 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
       <div>시간<b id="hTime">0.0</b></div>
       <div>점수<b id="hScore">0</b></div>
       <div>추락<b id="hFall">0</b></div>
+      <div id="hFever" style="min-width:74px">피버<b id="hFeverV">0%</b><i id="hFeverBar"></i></div>
       <div id="hCombo" hidden>콤보<b id="hComboV"></b><i id="hComboBar"></i></div>
       <div id="hItem" hidden>아이템<b id="hItemV"></b></div>
     </div>
@@ -99,12 +103,19 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
         <span><kbd>A</kbd> <kbd>D</kbd> 또는 <kbd>←</kbd> <kbd>→</kbd> 이동</span>
         <span><kbd>Space</kbd> 점프 · 공중에서 한 번 더 2단 점프</span>
       </div>
-      <div class="chars" id="chars" role="radiogroup" aria-label="캐릭터"></div>
+      <div class="curchar" id="curChar"></div>
       <div class="best" id="bestLine" hidden></div>
       <div class="btns">
         <button class="go" id="go">시작하기</button>
         <button class="go2" id="go2" hidden>1단계부터</button>
+        <button class="go2" id="goChar">캐릭터 선택</button>
       </div>
+    </div>
+    <div class="overlay" id="charOv" hidden>
+      <h2>캐릭터 선택</h2>
+      <div class="chars" id="chars" role="radiogroup" aria-label="캐릭터"></div>
+      <p id="charInfo"></p>
+      <div class="btns"><button class="go" id="charOk">선택 완료</button></div>
     </div>
   </div>
 
@@ -700,7 +711,25 @@ const tough = () => items.giant>0 || items.boost>0;   // 장애물을 부수며 
 function useShield(){ if(!P.shield) return false; P.shield=false; P.inv=1; toast('보호막!'); return true; }
 const chargeShield = () => { P.shield = charId==='tough'; };
 function useItem(k){ items[k]=ITEM[k].dur; toast(ITEM[k].name+'!'); play('item'); }
+/* 왁스 피버: 왁스 조각을 모으면 게이지가 차고, 가득 차면 6초간 왁스가 폭발하듯 부서짐 */
+const FEVER_MAX=120, FEVER_T=6;
+let fever=0, feverG=0, feverTick=0;
+const feverMul = () => fever>0 ? 2.5 : 1;
+function startFever(){ fever=FEVER_T; feverG=FEVER_MAX; toast('왁스 피버!'); play('win'); buzz(40); }
+function endFever(){ fever=0; feverG=0; }
+function addFever(n, x, y){
+  if(fever>0){
+    const pts=5*n*comboMult(combo); score+=pts;
+    pops.push({x, y:y-10, txt:'+'+pts, life:.5, big:true});
+    for(let k=0;k<n*2;k++) dust.push({x:x+rnd(-30,30),y:y+rnd(-10,10),vx:rnd(-140,140),vy:rnd(-260,-60),life:rnd(.3,.6),col:'#FFD23F',s:rnd(2,3.5)});
+  } else if((feverG=Math.min(FEVER_MAX, feverG+n))>=FEVER_MAX) startFever();
+}
 function updateItems(dt){
+  if(fever>0){
+    if((fever-=dt)<=0) endFever();
+    if((feverTick-=dt)<=0){ feverTick=.14; play('tick',.8); }
+    dust.push({x:P.x+rnd(-24,24),y:P.y-rnd(0,PH*P.sc),vx:rnd(-30,30),vy:rnd(-90,-20),life:rnd(.25,.5),col:`hsl(${(clock*300+rnd(0,120))%360},95%,65%)`,s:rnd(1.5,3)});
+  }
   if(combo>0 && (comboT-=dt)<=0) breakCombo();
   for(const k in items) items[k]=Math.max(0, items[k]-dt);
   P.sc += ((items.giant>0 ? 1.8 : 1) - P.sc)*Math.min(1, dt*8);
@@ -768,7 +797,7 @@ function collectJellies(){
       const m=comboMult(combo);
       if(m>comboMult(combo-1)){ toast('×'+m+' 콤보!'); play('check'); }
       if(combo>bestCombo){ bestCombo=combo; try{ localStorage.setItem('wakppu-side-combo',String(bestCombo)); }catch(e){} }
-      const pts=Math.round(jellyPts(j.big)*m*(charId==='sweet' ? 1.3 : 1)); score+=pts;
+      const pts=Math.round(jellyPts(j.big)*m*(charId==='sweet' ? 1.3 : 1)*(fever>0 ? 2 : 1)); score+=pts;
       pops.push({x, y, txt:'+'+pts, life:.7, big:j.big});
       for(let k=0;k<(j.big?12:4);k++) dust.push({x,y,vx:rnd(-90,90),vy:rnd(-140,-20),life:rnd(.2,.45),col:j.big?'#FFD23F':'#FF8FC4',s:rnd(1.5,3)});
       j.big ? play('bigJelly') : play('bling');
@@ -847,12 +876,12 @@ function nextStage(g){
 }
 
 function spawnAt(pl){
-  for(const k in items) items[k]=0; P.sc=1; trail.length=0; breakCombo();
+  for(const k in items) items[k]=0; P.sc=1; trail.length=0; breakCombo(); if(fever>0) endFever();
   P.x = pl.x + Math.min(pl.tp.w*.5, 70); P.y = groundAt(pl, P.x) ?? pl.y; P.vx=0; P.vy=0; P.ground=pl; P.jumps=0; P.spin=0;
 }
 function reset(){
   buildCourse(); shards=[]; dust=[]; coreFalls=[];
-  elapsed=0; stageT0=0; shardCount=0; falls=0; maxIdx=0; seen=new Set(); pops=[]; score=0; beatBest=false; combo=0;
+  elapsed=0; stageT0=0; shardCount=0; falls=0; maxIdx=0; seen=new Set(); pops=[]; score=0; beatBest=false; combo=0; fever=0; feverG=0;
   checkpoint=plats[0]; spawnAt(checkpoint);
   camX = P.x - VW*.35; lastGroundY = P.y; camY = camTargetY(); P.maxX = P.x;
 }
@@ -912,6 +941,7 @@ function crush(pl, wx, wy, radius, force, loud){
   }
   if(n){
     rebuildUnion(pl); shardCount+=n; pl.sv += .9*force;
+    if(state==='play') addFever(n, pl.x+ix, pl.y+iy);
     play(pl.tp.type, loud ? Math.min(1,.45+n*.06) : .3);
     if(loud) buzz(10);
   }
@@ -926,11 +956,16 @@ addEventListener('keydown', e => {
   const k=e.code;
   if(![...LEFT,...RIGHT,...JUMPK].includes(k)) return;
   if(state!=='play'){
-    if(k==='Space' && !(document.activeElement instanceof HTMLButtonElement)){ e.preventDefault(); go.click(); }
-    else if(LEFT.includes(k)||RIGHT.includes(k)){
-      e.preventDefault(); const open=CHARS.filter(unlocked), i=open.findIndex(c=>c.id===charId);
-      setChar(open[Math.max(0,Math.min(open.length-1,i+(RIGHT.includes(k)?1:-1)))].id);
+    if(!$('charOv').hidden){   // 캐릭터 화면: ←/→ 고르기, Space 완료
+      e.preventDefault();
+      if(LEFT.includes(k)||RIGHT.includes(k)){
+        const open=CHARS.filter(unlocked), i=open.findIndex(c=>c.id===charId);
+        setChar(open[Math.max(0,Math.min(open.length-1,i+(RIGHT.includes(k)?1:-1)))].id);
+        $('chars').querySelector('[aria-checked="true"]').focus();
+      } else if(k==='Space') closeChars();
+      return;
     }
+    if(k==='Space' && !(document.activeElement instanceof HTMLButtonElement)){ e.preventDefault(); go.click(); }
     return;
   }
   e.preventDefault(); keys.add(k);
@@ -972,7 +1007,7 @@ function physics(dt){
   if(P.jumpBuf>0){
     if(P.coyote>0){
       P.vy=JUMP; P.coyote=0; P.jumpBuf=0; P.jumps=1;
-      if(P.ground) crush(P.ground, P.x, P.y, 18, .6, false);
+      if(P.ground) crush(P.ground, P.x, P.y, 18*feverMul(), .6, false);
       P.ground=null;
     } else if(P.jumps < (charId==='feather' ? 3 : 2)){   // 깃털 왁뿌는 3단 점프
       P.vy = P.jumps>=2 ? JUMP2*.9 : JUMP2; P.jumpBuf=0; P.jumps++; P.spin=1;
@@ -1007,7 +1042,7 @@ function physics(dt){
   // 걷는 동안 발밑 왁스가 조금씩 부서짐
   if(P.ground && Math.abs(P.vx)>50){
     P.walk += dt*Math.abs(P.vx)/22; P.stepT += dt;
-    if(P.stepT>.2){ P.stepT=0; crush(P.ground, P.x+P.face*6, P.y, 15*P.sc, .45, false); }
+    if(P.stepT>.2){ P.stepT=0; crush(P.ground, P.x+P.face*6, P.y, 15*P.sc*feverMul(), .45, false); }
   } else P.walk *= .8;
 
   for(const pl of plats){
@@ -1041,7 +1076,7 @@ function physics(dt){
 function onLand(pl, impact){
   if(pl.idx>maxIdx) maxIdx=pl.idx;
   const force = Math.min(1.6, .55 + impact/700);
-  const radius = (20 + Math.min(48, impact*.055))*P.sc;
+  const radius = (20 + Math.min(48, impact*.055))*P.sc*feverMul();
   if(!pl.tp.noShell){
     const n = crush(pl, P.x, P.y, radius, force, true);
     if(!n) play(pl.tp.type, .25);
@@ -1235,11 +1270,11 @@ function drawPlayerFx(){
 /* ---------------- 캐릭터 ---------------- */
 // at: 이 단계에 처음 도달하면 해금
 const CHARS = [
-  {id:'basic',   name:'기본 왁뿌', desc:'능력 없음',          at:1, c:{leg:'#5E2E8C', leg2:'#7A3FA8', arm:'#2F58B8', body:'#3E6FD8', hair:'#FF4B2E'}},
-  {id:'sweet',   name:'달콤 왁뿌', desc:'젤리 점수 +30%',     at:2, c:{leg:'#C2457A', leg2:'#E06C9F', arm:'#F07FB0', body:'#FF9CC8', hair:'#7A4630'}},
-  {id:'magnet',  name:'자석 왁뿌', desc:'항상 약한 자석',     at:3, c:{leg:'#5B6475', leg2:'#7B8597', arm:'#9AA3B5', body:'#B8C0CF', hair:'#2A2140'}},
-  {id:'feather', name:'깃털 왁뿌', desc:'3단 점프',           at:4, c:{leg:'#8FA3C9', leg2:'#B5C4E0', arm:'#DCE3F2', body:'#F4F6FB', hair:'#FFD23F'}},
-  {id:'tough',   name:'단단 왁뿌', desc:'단계마다 1번 보호막', at:5, c:{leg:'#4A2818', leg2:'#6B3B22', arm:'#86523A', body:'#9C6444', hair:'#2A2140'}}
+  {id:'basic',   name:'기본 왁뿌', desc:'능력 없음',          long:'균형 잡힌 기본 캐릭터예요. 특별한 능력은 없어요.', at:1, c:{leg:'#5E2E8C', leg2:'#7A3FA8', arm:'#2F58B8', body:'#3E6FD8', hair:'#FF4B2E'}},
+  {id:'sweet',   name:'달콤 왁뿌', desc:'젤리 점수 +30%',     long:'젤리 점수를 30% 더 받아요. 콤보·피버 배수와도 함께 곱해져요.', at:2, c:{leg:'#C2457A', leg2:'#E06C9F', arm:'#F07FB0', body:'#FF9CC8', hair:'#7A4630'}},
+  {id:'magnet',  name:'자석 왁뿌', desc:'항상 약한 자석',     long:'반경 80px 안의 젤리가 항상 끌려와요. 자석 아이템을 먹으면 더 넓어져요.', at:3, c:{leg:'#5B6475', leg2:'#7B8597', arm:'#9AA3B5', body:'#B8C0CF', hair:'#2A2140'}},
+  {id:'feather', name:'깃털 왁뿌', desc:'3단 점프',           long:'공중에서 한 번 더 뛸 수 있어요. 3단 점프로 높은 탑도 쉽게 올라가요.', at:4, c:{leg:'#8FA3C9', leg2:'#B5C4E0', arm:'#DCE3F2', body:'#F4F6FB', hair:'#FFD23F'}},
+  {id:'tough',   name:'단단 왁뿌', desc:'단계마다 1번 보호막', long:'단계마다 장애물 한 번을 보호막으로 막아요. 막은 뒤 1초 동안 무적이에요.', at:5, c:{leg:'#4A2818', leg2:'#6B3B22', arm:'#86523A', body:'#9C6444', hair:'#2A2140'}}
 ];
 let charId='basic'; try{ const v=localStorage.getItem('wakppu-side-char'); if(CHARS.some(c=>c.id===v)) charId=v; }catch(e){}
 const CH = () => CHARS.find(c=>c.id===charId);
@@ -1299,6 +1334,13 @@ function render(){
   ctx.globalAlpha=1;
   drawSlime();
   ctx.restore();
+  if(fever>0){   // 피버: 화면 가장자리 무지갯빛
+    const hue=(clock*200)%360, a=.35*Math.min(1,fever);
+    for(const [x0,y0,x1,y1,rx,ry,rw,rh] of [[0,0,0,60,0,0,VW,60],[0,VH,0,VH-60,0,VH-60,VW,60],[0,0,60,0,0,0,60,VH],[VW,0,VW-60,0,VW-60,0,60,VH]]){
+      const gr=ctx.createLinearGradient(x0,y0,x1,y1); gr.addColorStop(0,`hsla(${hue},95%,62%,${a})`); gr.addColorStop(1,`hsla(${hue+60},95%,62%,0)`);
+      ctx.fillStyle=gr; ctx.fillRect(rx,ry,rw,rh);
+    }
+  }
 }
 
 /* ---------------- UI ---------------- */
@@ -1310,6 +1352,9 @@ function hud(){
   $('hTime').textContent=elapsed.toFixed(1);
   $('hScore').textContent=score.toLocaleString('ko-KR');
   $('hFall').textContent=falls;
+  const fb=$('hFeverBar');
+  if(fever>0){ $('hFeverV').textContent=fever.toFixed(1)+'초'; fb.style.transform='scaleX('+(fever/FEVER_T)+')'; fb.style.background=`hsl(${(clock*300)%360},90%,55%)`; fb.style.opacity=1; }
+  else { $('hFeverV').textContent=Math.floor(feverG/FEVER_MAX*100)+'%'; fb.style.transform='scaleX('+(feverG/FEVER_MAX)+')'; fb.style.background=''; fb.style.opacity = feverG>=FEVER_MAX*.9 && (clock*8|0)%2 ? .3 : 1; }
   $('hCombo').hidden=!combo; $('hComboV').textContent=combo+' ×'+comboMult(combo); $('hComboBar').style.transform='scaleX('+(comboT/COMBO_T)+')';
   const on=Object.keys(items).filter(k=>items[k]>0);
   $('hItem').hidden=!on.length; $('hItemV').textContent=on.map(k=>ITEM[k].icon+' '+items[k].toFixed(1)).join('  ');
@@ -1329,8 +1374,8 @@ function buildChars(){
   for(const ch of CHARS){
     const b=document.createElement('button'); b.className='char'; b.setAttribute('role','radio'); b.dataset.id=ch.id;
     const open=unlocked(ch); b.disabled=!open;
-    const c=document.createElement('canvas'); c.width=96; c.height=112;
-    const g=c.getContext('2d'); g.scale(2,2); g.translate(24,52); g.scale(.85,.85); drawFigure(g, ch, .3, false);
+    const c=document.createElement('canvas'); c.width=120; c.height=140;
+    const g=c.getContext('2d'); g.scale(2,2); g.translate(30,66); g.scale(1.05,1.05); drawFigure(g, ch, .3, false);
     b.append(c);
     b.insertAdjacentHTML('beforeend', `<b>${open ? ch.name : '🔒 '+ch.name}</b><small>${open ? ch.desc : ch.at+'단계 도달 시 해금'}</small>`);
     b.addEventListener('click', ()=>setChar(ch.id));
@@ -1340,13 +1385,23 @@ function buildChars(){
 }
 function setChar(id){
   charId=id; try{ localStorage.setItem('wakppu-side-char',id); }catch(e){}
+  $('charInfo').textContent = CH().name+' · '+CH().long;
   for(const b of $('chars').children){
     const on=b.dataset.id===id; b.setAttribute('aria-checked',String(on)); b.tabIndex=on?0:-1;
     if(on){ const box=$('chars'); box.scrollLeft = b.offsetLeft - (box.clientWidth-b.offsetWidth)/2; }
   }
 }
+function openChars(){ ov.hidden=true; $('charOv').hidden=false; buildChars(); $('chars').querySelector('[aria-checked="true"]').focus(); }
+function closeChars(){ $('charOv').hidden=true; ov.hidden=false; showMenu(); go.focus(); }
+$('goChar').addEventListener('click', openChars);
+$('charOk').addEventListener('click', closeChars);
+addEventListener('keydown', e => { if(e.code==='Escape' && !$('charOv').hidden) closeChars(); });
 function showMenu(){
-  buildChars();
+  if(!unlocked(CH())) charId='basic';
+  const cc=$('curChar'); cc.innerHTML='';
+  const c=document.createElement('canvas'); c.width=60; c.height=70;
+  const g=c.getContext('2d'); g.scale(2,2); g.translate(15,33); g.scale(.5,.5); drawFigure(g, CH(), .3, false);
+  cc.append(c, document.createTextNode(CH().name));
   goTo=savedStage; go2To=1;
   go.textContent = savedStage>1 ? `이어하기 (${savedStage}단계)` : '시작하기';
   go2.textContent='1단계부터'; go2.hidden = savedStage<=1;
