@@ -63,6 +63,14 @@ button{font:inherit}
 .char:disabled{opacity:.45;cursor:default}
 .char:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 .shopTabs{display:flex;gap:6px}
+.mlist{display:flex;flex-direction:column;gap:8px;width:min(100%,460px)}
+.mrow{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;background:var(--tray);border:1.5px solid var(--line);border-radius:14px;padding:8px 12px;text-align:left}
+.mrow b{font-family:"Jua",sans-serif;font-weight:400;font-size:15px;color:var(--ink)}
+.mrow small{color:var(--soft);font-size:12px}
+.mbar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.mbar i{display:block;height:100%;background:var(--accent)}
+.mrow .buy{grid-row:1/4;grid-column:2;margin:0}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#E8333F;margin-left:5px;vertical-align:middle}
 .tab{font-family:"Jua",sans-serif;font-size:16px;border:1.5px solid var(--line);background:var(--tray);color:var(--ink);border-radius:999px;padding:6px 18px;cursor:pointer}
 .tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
 .shopList{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;width:min(100%,600px)}
@@ -144,6 +152,7 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
         <button class="go2" id="go2" hidden>1단계부터</button>
         <button class="go2" id="goChar">캐릭터 선택</button>
         <button class="go2" id="goShop">상점</button>
+        <button class="go2" id="goMission">미션</button>
       </div>
     </div>
     <div class="overlay" id="resOv" hidden>
@@ -162,6 +171,12 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
         <button class="go" id="resRetry">다시 달리기</button>
         <button class="go2" id="resMenu">메인 메뉴</button>
       </div>
+    </div>
+    <div class="overlay" id="missionOv" hidden>
+      <h2>일일 미션</h2>
+      <div class="mlist" id="missionList"></div>
+      <small id="missionTimer" style="color:var(--soft)"></small>
+      <div class="btns"><button class="go" id="missionOk">닫기</button></div>
     </div>
     <div class="overlay" id="shopOv" hidden>
       <h2>상점</h2>
@@ -782,7 +797,51 @@ let trail=[];
 // 7초 동안 점프 키를 누르면 오르고 떼면 내려옴. 무적, 체력 안 줄어듦. 끝나면 1.5초 천천히 내려옴
 const RIDE_T=7;
 let ride=0, glide=0;
+/* ---------------- 일일 미션 ---------------- */
+// 날짜로 미션 3개를 고르고, 그날 하루 동안 여러 판에 걸쳐 진행도를 쌓음
+const MISSIONS = [
+  {id:'jelly',  name:'젤리 먹기',              goal:300, reward:40},
+  {id:'coin',   name:'코인 모으기',            goal:60,  reward:40},
+  {id:'stage',  name:'한 판에 단계 통과',      goal:5,   reward:60, max:true},
+  {id:'combo',  name:'콤보 달성',              goal:30,  reward:50, max:true},
+  {id:'smash',  name:'장애물 부수기',          goal:5,   reward:50},
+  {id:'fever',  name:'왁스 피버 발동',         goal:2,   reward:50},
+  {id:'item',   name:'아이템 젤리 먹기',       goal:4,   reward:40},
+  {id:'ride',   name:'드래곤 타기',            goal:1,   reward:60},
+  {id:'heart',  name:'체력 젤리 먹기',         goal:4,   reward:40},
+  {id:'clean',  name:'추락·충돌 없이 단계 통과', goal:1,  reward:70}
+];
+const M_BONUS=100;
+const dayKey = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+function pickDaily(key){
+  let h=0; for(const ch of key) h=(h*31+ch.charCodeAt(0))>>>0;
+  const rnd01 = () => (h=(h*1103515245+12345)>>>0)/4294967296;
+  const pool=MISSIONS.map(m=>m.id), out=[];
+  while(out.length<3) out.push(pool.splice(Math.floor(rnd01()*pool.length),1)[0]);
+  return out;
+}
+let daily=null;
+function ensureDaily(){
+  const key=dayKey();
+  if(!daily){ try{ daily=JSON.parse(localStorage.getItem('wakppu-side-daily')||'null'); }catch(e){} }
+  if(!daily || daily.date!==key){ daily={date:key, ids:pickDaily(key), prog:{}, claimed:{}, bonus:false}; saveDaily(); }
+  return daily;
+}
+function saveDaily(){ try{ localStorage.setItem('wakppu-side-daily',JSON.stringify(daily)); }catch(e){} }
+const MISSION = id => MISSIONS.find(m=>m.id===id);
+function mProg(id, n){
+  const d=ensureDaily(); if(!d.ids.includes(id)) return;
+  const m=MISSION(id), before=d.prog[id]||0;
+  if(before>=m.goal) return;
+  d.prog[id] = Math.min(m.goal, m.max ? Math.max(before,n) : before+n);
+  if(d.prog[id]>=m.goal){ setTimeout(()=>{ if(state==='play') toast('미션 완료: '+m.name+'!'); }, 600); play('check'); }
+  saveDaily();
+}
+const mDone = () => { const d=ensureDaily(); return d.ids.filter(id=>(d.prog[id]||0)>=MISSION(id).goal).length; };
+const mClaimable = () => { const d=ensureDaily(); return d.ids.some(id=>(d.prog[id]||0)>=MISSION(id).goal && !d.claimed[id]) || (d.ids.every(id=>d.claimed[id]) && !d.bonus); };
+function addCoins(n){ runCoins+=n; mProg('coin', n); }
 function startRide(){
+  mProg('ride',1);
   ride=RIDE_T; glide=0; P.jumps=0; P.ground=null; P.vy=-300;
   toast('드래곤 탑승!'); play('win'); buzz(40);
   // 하늘길 젤리: 앞쪽 하늘에 물결 모양 젤리 줄
@@ -832,12 +891,12 @@ function useShield(){
   P.inv=1; toast('보호막!'); return true;
 }
 const chargeShield = () => { P.shield = charId==='tough'; };
-function useItem(k){ items[k]=ITEM[k].dur+.5*ups.item; toast(ITEM[k].name+'!'); play('item'); }
+function useItem(k){ mProg('item',1); items[k]=ITEM[k].dur+.5*ups.item; toast(ITEM[k].name+'!'); play('item'); }
 /* 왁스 피버: 왁스 조각을 모으면 게이지가 차고, 가득 차면 6초간 왁스가 폭발하듯 부서짐 */
 const FEVER_MAX=120, FEVER_T=6;
 let fever=0, feverG=0, feverTick=0;
 const feverMul = () => fever>0 ? 2.5 : 1;
-function startFever(){ fever=FEVER_T+.5*ups.fever; feverG=FEVER_MAX; toast('왁스 피버!'); play('win'); buzz(40); }
+function startFever(){ mProg('fever',1); fever=FEVER_T+.5*ups.fever; feverG=FEVER_MAX; toast('왁스 피버!'); play('win'); buzz(40); }
 function endFever(){ fever=0; feverG=0; }
 function addFever(n, x, y){
   if(fever>0){
@@ -916,7 +975,7 @@ function updateItems(dt){
 }
 /* ---------------- 코인 ---------------- */
 // 판에서 모은 코인(runCoins)은 판이 끝날 때 보유 코인(wallet)에 더해 저장
-let runCoins=0, wallet=0;
+let runCoins=0, wallet=0, stageFalls0=0;
 try{ wallet=+localStorage.getItem('wakppu-side-coins')||0; }catch(e){}
 function bankCoins(){
   if(!runCoins) return;
@@ -924,7 +983,7 @@ function bankCoins(){
   try{ localStorage.setItem('wakppu-side-coins',String(wallet)); }catch(e){}
 }
 function smash(x,y,col){
-  runCoins+=1;
+  addCoins(1); mProg('smash',1);
   const v=addScore(50); pops.push({x, y:y-20, txt:'+'+v, life:.7, big:true}); play('smash'); buzz(20);
   for(let k=0;k<16;k++) dust.push({x,y,vx:rnd(-160,160),vy:rnd(-260,-60),life:rnd(.3,.7),col,s:rnd(2,4)});
 }
@@ -980,14 +1039,14 @@ function collectJellies(){
       j.taken=true;
       if(j.ride){ startRide(); continue; }
       if(j.item){ useItem(j.item); continue; }
-      if(j.heart){ heal(25, x, y-10); play('item'); continue; }
-      combo++; comboT=COMBO_T; runCombo=Math.max(runCombo,combo);
+      if(j.heart){ heal(25, x, y-10); play('item'); mProg('heart',1); continue; }
+      combo++; comboT=COMBO_T; runCombo=Math.max(runCombo,combo); mProg('combo', combo);
       if(j.coin){   // 코인은 콤보만 잇고 점수는 없음
-        const c=j.coin*(fever>0 ? 2 : 1); runCoins+=c;
+        const c=j.coin*(fever>0 ? 2 : 1); addCoins(c);
         pops.push({x, y, txt:'+'+c+' 🪙', life:.7, big:j.coin>1}); play('coin');
         continue;
       }
-      runJellies++;
+      runJellies++; mProg('jelly',1);
       const m=comboMult(combo);
       if(m>comboMult(combo-1)){ toast('×'+m+' 콤보!'); play('check'); }
       if(combo>bestCombo){ bestCombo=combo; try{ localStorage.setItem('wakppu-side-combo',String(bestCombo)); }catch(e){} }
@@ -1074,8 +1133,10 @@ function loadBest(){
 function nextStage(g){
   const t = elapsed - stageT0, rec = best===null || t<best;
   if(rec) try{ localStorage.setItem('wakppu-side-best-s'+level, String(t)); }catch(e){}
-  runCoins += level;   // 단계 통과 보너스
-  level++; CFG=stageCfg(level); loadBest(); stageT0=elapsed;
+  addCoins(level);   // 단계 통과 보너스
+  if(falls===stageFalls0) mProg('clean',1);
+  level++; CFG=stageCfg(level); stageFalls0=falls;
+  mProg('stage', level-startLevel); loadBest(); stageT0=elapsed;
   if(builtLevel<level) appendStage();
   checkpoint=g; startX=g.x+60; goalX=goals[level].x; P.maxX=P.x;
   const newChar = level>savedStage && CHARS.find(c=>c.at===level);
@@ -1133,7 +1194,7 @@ function showResult(){
 function reset(){
   bankCoins();
   buildCourse(); shards=[]; dust=[]; coreFalls=[];
-  elapsed=0; stageT0=0; shardCount=0; falls=0; maxIdx=0; seen=new Set(); pops=[]; score=0; beatBest=false; combo=0; fever=0; feverG=0;
+  stageFalls0=0; elapsed=0; stageT0=0; shardCount=0; falls=0; maxIdx=0; seen=new Set(); pops=[]; score=0; beatBest=false; combo=0; fever=0; feverG=0;
   hp=hpMax; flashT=0; warnT=0; runJellies=0; runCombo=0; bestAtStart=bestScore;
   checkpoint=plats[0]; spawnAt(checkpoint);
   camX = P.x - VW*.35; lastGroundY = P.y; camY = camTargetY(); P.maxX = P.x;
@@ -1210,7 +1271,7 @@ addEventListener('keydown', e => {
   if(![...LEFT,...RIGHT,...JUMPK].includes(k)) return;
   if(state!=='play'){
     if(state==='dying') return;
-    if(!$('shopOv').hidden) return;
+    if(!$('shopOv').hidden || !$('missionOv').hidden) return;
     if(!$('resOv').hidden){ if(k==='Space' && !(document.activeElement instanceof HTMLButtonElement)){ e.preventDefault(); $('resRetry').click(); } return; }
     if(!$('charOv').hidden){   // 캐릭터 화면: ←/→ 고르기, Space 완료
       if(!$('pets').hidden) return;
@@ -1694,7 +1755,36 @@ function openChars(){ ov.hidden=true; $('charOv').hidden=false; buildChars(); se
 function closeChars(){ $('charOv').hidden=true; ov.hidden=false; showMenu(); go.focus(); }
 $('goChar').addEventListener('click', openChars);
 $('charOk').addEventListener('click', closeChars);
-addEventListener('keydown', e => { if(e.code==='Escape' && !$('charOv').hidden) closeChars(); if(e.code==='Escape' && !$('shopOv').hidden) closeShop(); });
+addEventListener('keydown', e => { if(e.code==='Escape' && !$('charOv').hidden) closeChars(); if(e.code==='Escape' && !$('shopOv').hidden) closeShop(); if(e.code==='Escape' && !$('missionOv').hidden) closeMissions(); });
+let mTimer=0;
+function renderMissions(){
+  const d=ensureDaily(), box=$('missionList'); box.innerHTML='';
+  const row=(title,sub,pct,label,can,onClaim)=>{
+    const r=document.createElement('div'); r.className='mrow';
+    r.innerHTML=`<b>${title}</b><small>${sub}</small><div class="mbar"><i style="width:${Math.round(pct*100)}%"></i></div>`;
+    const b=document.createElement('button'); b.className='buy'; b.textContent=label; b.disabled=!can; b.addEventListener('click',onClaim);
+    r.append(b); box.append(r);
+  };
+  for(const id of d.ids){
+    const m=MISSION(id), p=d.prog[id]||0, done=p>=m.goal, got=d.claimed[id];
+    row(m.name+' '+m.goal+(id==='stage'?'단계':id==='combo'?'콤보':id==='jelly'||id==='coin'?'개':'번'), p+' / '+m.goal+' · 보상 🪙 '+m.reward, p/m.goal,
+      got ? '받음' : done ? '받기' : '진행 중', done && !got, ()=>{ wallet+=m.reward; d.claimed[id]=true; saveDaily(); saveShop(); play('coin'); toast('🪙 +'+m.reward); renderMissions(); });
+  }
+  const all=d.ids.every(id=>d.claimed[id]);
+  row('전체 완료 보너스', '세 미션 보상을 모두 받으면 · 보상 🪙 '+M_BONUS, d.ids.filter(id=>d.claimed[id]).length/3,
+    d.bonus ? '받음' : all ? '받기' : '잠김', all && !d.bonus, ()=>{ wallet+=M_BONUS; d.bonus=true; saveDaily(); saveShop(); play('win'); toast('🪙 +'+M_BONUS); renderMissions(); });
+  tickMissionTimer();
+}
+function tickMissionTimer(){
+  const now=new Date(), next=new Date(now.getFullYear(),now.getMonth(),now.getDate()+1), sec=Math.max(0,Math.floor((next-now)/1000));
+  const p=n=>String(n).padStart(2,'0');
+  $('missionTimer').textContent='다음 미션까지 '+p(sec/3600|0)+':'+p((sec/60|0)%60)+':'+p(sec%60);
+  if(daily && daily.date!==dayKey()){ ensureDaily(); renderMissions(); }
+}
+function openMissions(){ ov.hidden=true; $('missionOv').hidden=false; renderMissions(); clearInterval(mTimer); mTimer=setInterval(tickMissionTimer,1000); $('missionOk').focus(); }
+function closeMissions(){ clearInterval(mTimer); $('missionOv').hidden=true; ov.hidden=false; showMenu(); go.focus(); }
+$('goMission').addEventListener('click', openMissions);
+$('missionOk').addEventListener('click', closeMissions);
 let shopTab='boost';
 function renderShop(){
   $('shopWallet').textContent='보유 🪙 '+wallet.toLocaleString('ko-KR');
@@ -1728,6 +1818,7 @@ $('shopOk').addEventListener('click', closeShop);
 $('tabBoost').addEventListener('click', ()=>{ shopTab='boost'; renderShop(); });
 $('tabUp').addEventListener('click', ()=>{ shopTab='up'; renderShop(); });
 function showMenu(){
+  $('goMission').innerHTML='미션 ('+mDone()+'/3)'+(mClaimable() ? '<span class="dot"></span>' : '');
   if(!unlocked(CH())) charId='basic';
   const cc=$('curChar'); cc.innerHTML='';
   const c=document.createElement('canvas'); c.width=60; c.height=70;
