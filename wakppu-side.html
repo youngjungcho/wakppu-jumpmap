@@ -61,6 +61,18 @@ button{font:inherit}
 .char[aria-checked="true"]{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
 .char:disabled{opacity:.45;cursor:default}
 .char:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
+.shopTabs{display:flex;gap:6px}
+.tab{font-family:"Jua",sans-serif;font-size:16px;border:1.5px solid var(--line);background:var(--tray);color:var(--ink);border-radius:999px;padding:6px 18px;cursor:pointer}
+.tab[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.shopList{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px;width:min(100%,600px)}
+.shopItem{background:var(--tray);border:1.5px solid var(--line);border-radius:14px;padding:8px 10px;text-align:left;display:flex;flex-direction:column;gap:3px}
+.shopItem .ic{font-size:22px;line-height:1}
+.shopItem b{font-family:"Jua",sans-serif;font-weight:400;font-size:15px;color:var(--ink)}
+.shopItem small{color:var(--soft);font-size:12px;line-height:1.35;flex:1}
+.shopItem .dots{color:var(--accent);font-size:11px;letter-spacing:2px}
+.buy{font-family:"Jua",sans-serif;font-size:14px;border:0;border-radius:999px;padding:5px 10px;background:var(--accent);color:#fff;cursor:pointer;margin-top:4px}
+.buy:disabled{opacity:.4;cursor:default}
+.buy:focus-visible,.tab:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 .char canvas{width:60px;height:70px;display:block;margin:0 auto 2px}
 .curchar{display:flex;align-items:center;gap:6px;font-family:"Jua",sans-serif;font-size:17px;color:var(--ink)}
 .curchar canvas{width:30px;height:35px}
@@ -75,7 +87,7 @@ button{font:inherit}
 footer{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:10px;color:var(--soft);font-size:13px;line-height:1.5}
 .mute{background:none;border:1.5px solid var(--line);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap}
 .mute:disabled{opacity:.4;cursor:default}
-@media (max-width:600px){ header p{font-size:13px} .stage{aspect-ratio:4/3} .hud b{font-size:17px} .overlay{padding:14px;gap:8px} .overlay p{font-size:13px;line-height:1.45} .overlay .keys,#ovText{display:none} .char{width:86px} .res{grid-template-columns:repeat(3,auto);gap:2px 12px;font-size:12px} .res b{font-size:18px} .char canvas{width:44px;height:52px} #charInfo{min-height:0;font-size:12px} .go{font-size:19px;padding:9px 30px} .go2{font-size:15px;padding:7px 16px} }
+@media (max-width:600px){ header p{font-size:13px} .stage{aspect-ratio:4/3} .hud b{font-size:17px} .overlay{padding:14px;gap:8px} .overlay p{font-size:13px;line-height:1.45} .overlay .keys,#ovText{display:none} .char{width:86px} .shopList{grid-template-columns:repeat(2,1fr);gap:6px} .shopItem{padding:6px 8px} .shopItem small{font-size:11px} .res{grid-template-columns:repeat(3,auto);gap:2px 12px;font-size:12px} .res b{font-size:18px} .char canvas{width:44px;height:52px} #charInfo{min-height:0;font-size:12px} .go{font-size:19px;padding:9px 30px} .go2{font-size:15px;padding:7px 16px} }
 </style>
 </head>
 <body>
@@ -114,10 +126,12 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
       </div>
       <div class="curchar" id="curChar"></div>
       <div class="best" id="bestLine" hidden></div>
+      <div class="best" id="boostLine" hidden></div>
       <div class="btns">
         <button class="go" id="go">시작하기</button>
         <button class="go2" id="go2" hidden>1단계부터</button>
         <button class="go2" id="goChar">캐릭터 선택</button>
+        <button class="go2" id="goShop">상점</button>
       </div>
     </div>
     <div class="overlay" id="resOv" hidden>
@@ -136,6 +150,17 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
         <button class="go" id="resRetry">다시 달리기</button>
         <button class="go2" id="resMenu">메인 메뉴</button>
       </div>
+    </div>
+    <div class="overlay" id="shopOv" hidden>
+      <h2>상점</h2>
+      <div class="best" id="shopWallet"></div>
+      <div class="shopTabs" role="tablist">
+        <button class="tab" role="tab" id="tabBoost" aria-selected="true">부스트</button>
+        <button class="tab" role="tab" id="tabUp" aria-selected="false">업그레이드</button>
+      </div>
+      <small id="shopHint" style="color:var(--soft)"></small>
+      <div class="shopList" id="shopList" role="tabpanel"></div>
+      <div class="btns"><button class="go" id="shopOk">닫기</button></div>
     </div>
     <div class="overlay" id="charOv" hidden>
       <h2>캐릭터 선택</h2>
@@ -737,18 +762,55 @@ const items = {magnet:0, giant:0, boost:0};
 let trail=[];
 const tough = () => items.giant>0 || items.boost>0;   // 장애물을 부수며 지나감
 // 단단 왁뿌 보호막: 한 번 막고 1초 무적
-function useShield(){ if(!P.shield) return false; P.shield=false; P.inv=1; toast('보호막!'); return true; }
+/* ---------------- 상점 ---------------- */
+const BOOSTS = [
+  {id:'magnet', icon:'🧲', name:'시작 자석', desc:'시작하자마자 자석 10초', price:30},
+  {id:'shield', icon:'🛡️', name:'보호막', desc:'장애물 충돌 1번 막기', price:40},
+  {id:'hp',     icon:'❤️', name:'체력 +30', desc:'최대 체력 130으로 시작', price:50},
+  {id:'fever',  icon:'🔥', name:'피버 반충전', desc:'피버 게이지 50%에서 시작', price:40},
+  {id:'score',  icon:'⭐', name:'점수 +10%', desc:'이번 판 모든 점수 +10%', price:60}
+];
+const UPS = [
+  {id:'jelly', icon:'🍬', name:'젤리 점수',   per:l=>'젤리 점수 +'+5*l+'%'},
+  {id:'hp',    icon:'💗', name:'체력 유지',   per:l=>'체력 감소 −'+4*l+'%'},
+  {id:'item',  icon:'⏱️', name:'아이템 지속', per:l=>'아이템 +'+(.5*l)+'초'},
+  {id:'fever', icon:'🌈', name:'피버 지속',   per:l=>'피버 +'+(.5*l)+'초'},
+  {id:'coin',  icon:'🪙', name:'코인 행운',   per:l=>'은화 확률 '+(8+l)+'%'}
+];
+const UP_PRICE=[50,100,200,350,550];
+let ups={jelly:0,hp:0,item:0,fever:0,coin:0}, boosts=[];
+try{ Object.assign(ups, JSON.parse(localStorage.getItem('wakppu-side-ups')||'{}')); boosts=JSON.parse(localStorage.getItem('wakppu-side-boosts')||'[]'); }catch(e){}
+const saveShop = () => { try{ localStorage.setItem('wakppu-side-ups',JSON.stringify(ups)); localStorage.setItem('wakppu-side-boosts',JSON.stringify(boosts)); localStorage.setItem('wakppu-side-coins',String(wallet)); }catch(e){} };
+let scoreMul=1, hpMax=100;   // 이번 판 부스트 효과
+const addScore = n => { const v=Math.round(n*scoreMul); score+=v; return v; };
+// 메뉴에서 판을 시작할 때 사 둔 부스트를 쓰고 비움
+function applyBoosts(){
+  for(const b of boosts){
+    if(b==='magnet') items.magnet=10;
+    if(b==='shield') P.extraShield=1;
+    if(b==='hp'){ hpMax=130; hp=130; }
+    if(b==='fever') feverG=FEVER_MAX/2;
+    if(b==='score') scoreMul=1.1;
+  }
+  if(boosts.length) setTimeout(()=>{ if(state==='play') toast('부스트 '+boosts.map(b=>BOOSTS.find(x=>x.id===b).icon).join('')); }, 2400);
+  usedBoosts=boosts; boosts=[]; saveShop();
+}
+let usedBoosts=[];
+function useShield(){
+  if(P.shield) P.shield=false; else if(P.extraShield>0) P.extraShield--; else return false;
+  P.inv=1; toast('보호막!'); return true;
+}
 const chargeShield = () => { P.shield = charId==='tough'; };
-function useItem(k){ items[k]=ITEM[k].dur; toast(ITEM[k].name+'!'); play('item'); }
+function useItem(k){ items[k]=ITEM[k].dur+.5*ups.item; toast(ITEM[k].name+'!'); play('item'); }
 /* 왁스 피버: 왁스 조각을 모으면 게이지가 차고, 가득 차면 6초간 왁스가 폭발하듯 부서짐 */
 const FEVER_MAX=120, FEVER_T=6;
 let fever=0, feverG=0, feverTick=0;
 const feverMul = () => fever>0 ? 2.5 : 1;
-function startFever(){ fever=FEVER_T; feverG=FEVER_MAX; toast('왁스 피버!'); play('win'); buzz(40); }
+function startFever(){ fever=FEVER_T+.5*ups.fever; feverG=FEVER_MAX; toast('왁스 피버!'); play('win'); buzz(40); }
 function endFever(){ fever=0; feverG=0; }
 function addFever(n, x, y){
   if(fever>0){
-    const pts=5*n*comboMult(combo); score+=pts;
+    const pts=addScore(5*n*comboMult(combo));
     pops.push({x, y:y-10, txt:'+'+pts, life:.5, big:true});
     for(let k=0;k<n*2;k++) dust.push({x:x+rnd(-30,30),y:y+rnd(-10,10),vx:rnd(-140,140),vy:rnd(-260,-60),life:rnd(.3,.6),col:'#FFD23F',s:rnd(2,3.5)});
   } else if((feverG=Math.min(FEVER_MAX, feverG+n))>=FEVER_MAX) startFever();
@@ -786,7 +848,7 @@ function bankCoins(){
 }
 function smash(x,y,col){
   runCoins+=1;
-  score+=50; pops.push({x, y:y-20, txt:'+50', life:.7, big:true}); play('smash'); buzz(20);
+  const v=addScore(50); pops.push({x, y:y-20, txt:'+'+v, life:.7, big:true}); play('smash'); buzz(20);
   for(let k=0;k<16;k++) dust.push({x,y,vx:rnd(-160,160),vy:rnd(-260,-60),life:rnd(.3,.7),col,s:rnd(2,4)});
 }
 const jellyPts = big => (10 + 2*(Math.min(level,20)-1)) * (big ? 10 : 1);
@@ -799,7 +861,7 @@ function addJellies(from, n){
       for(let x=18; x<tp.w-10; x+=34){
         const o=tp.oTop[Math.round((x+tp.t)/2)];
         if(o==null || (pl.candle!=null && Math.abs(x-pl.candle)<34)) continue;
-        jellies.push({pl, ox:x, oy:o-24, big:false, coin: Math.random()<.08 ? 1 : 0});   // 은화
+        jellies.push({pl, ox:x, oy:o-24, big:false, coin: Math.random()<.08+.01*ups.coin ? 1 : 0});   // 은화
       }
     }
     const nx=list[i+1];
@@ -813,7 +875,7 @@ function addJellies(from, n){
       const u=k/n, big=k===bigAt;
       if(hazards.some(h=>h.type==='spike' && Math.abs(h.x-(x0+gap*u))<34)) continue;
       const gold = !big && k===goldAt;   // 금화는 아치 꼭대기 위
-      jellies.push({pl:null, x:x0+gap*u, y:(1-u)*(1-u)*y0+2*u*(1-u)*c+u*u*y1-(big?40:gold?30:0), big, coin: gold ? 5 : Math.random()<.08 ? 1 : 0});
+      jellies.push({pl:null, x:x0+gap*u, y:(1-u)*(1-u)*y0+2*u*(1-u)*c+u*u*y1-(big?40:gold?30:0), big, coin: gold ? 5 : Math.random()<.08+.01*ups.coin ? 1 : 0});
     }
   }
 }
@@ -847,7 +909,7 @@ function collectJellies(){
       const m=comboMult(combo);
       if(m>comboMult(combo-1)){ toast('×'+m+' 콤보!'); play('check'); }
       if(combo>bestCombo){ bestCombo=combo; try{ localStorage.setItem('wakppu-side-combo',String(bestCombo)); }catch(e){} }
-      const pts=Math.round(jellyPts(j.big)*m*(charId==='sweet' ? 1.3 : 1)*(fever>0 ? 2 : 1)); score+=pts;
+      const pts=addScore(jellyPts(j.big)*m*(charId==='sweet' ? 1.3 : 1)*(fever>0 ? 2 : 1)*(1+.05*ups.jelly));
       pops.push({x, y, txt:'+'+pts, life:.7, big:j.big});
       for(let k=0;k<(j.big?12:4);k++) dust.push({x,y,vx:rnd(-90,90),vy:rnd(-140,-20),life:rnd(.2,.45),col:j.big?'#FFD23F':'#FF8FC4',s:rnd(1.5,3)});
       j.big ? play('bigJelly') : play('bling');
@@ -910,7 +972,7 @@ function buildCourse(){
 }
 
 /* ---------------- 상태 ---------------- */
-const P = {sc:1,inv:0,shield:false,x:0,y:0,vx:0,vy:0,ground:null,coyote:0,jumpBuf:0,face:1,walk:0,stepT:0,jumps:0,spin:0,maxX:0};
+const P = {sc:1,inv:0,shield:false,extraShield:0,x:0,y:0,vx:0,vy:0,ground:null,coyote:0,jumpBuf:0,face:1,walk:0,stepT:0,jumps:0,spin:0,maxX:0};
 const PW=11, PH=46, SPEED=295, JUMP=-760, JUMP2=-690, GRAV=2100;
 let state='ready', elapsed=0, shardCount=0, falls=0, maxIdx=0, checkpoint=null, seen=new Set(), camX=0, camY=0, clock=0, lastHeal=0;
 let shards=[], dust=[];
@@ -957,9 +1019,9 @@ function damage(n){
   hp=Math.max(0,hp-n); flashT=.35;
   if(hp<=0) gameOver();
 }
-function heal(n, x, y){ hp=Math.min(HP_MAX,hp+n); if(x!=null) pops.push({x, y, txt:'+'+n+' ♥', life:.8, big:true}); }
+function heal(n, x, y){ hp=Math.min(hpMax,hp+n); if(x!=null) pops.push({x, y, txt:'+'+n+' ♥', life:.8, big:true}); }
 function updateHp(dt){
-  hp -= hpDrain()*dt;
+  hp -= hpDrain()*(1-.04*ups.hp)*dt;
   if(hp<30 && (warnT-=dt)<=0){ warnT=1; play('warn'); }
   if(hp<=0){ hp=0; gameOver(); }
 }
@@ -983,7 +1045,7 @@ function reset(){
   bankCoins();
   buildCourse(); shards=[]; dust=[]; coreFalls=[];
   elapsed=0; stageT0=0; shardCount=0; falls=0; maxIdx=0; seen=new Set(); pops=[]; score=0; beatBest=false; combo=0; fever=0; feverG=0;
-  hp=HP_MAX; flashT=0; warnT=0; runJellies=0; runCombo=0; bestAtStart=bestScore;
+  hp=hpMax; flashT=0; warnT=0; runJellies=0; runCombo=0; bestAtStart=bestScore;
   checkpoint=plats[0]; spawnAt(checkpoint);
   camX = P.x - VW*.35; lastGroundY = P.y; camY = camTargetY(); P.maxX = P.x;
 }
@@ -1059,6 +1121,7 @@ addEventListener('keydown', e => {
   if(![...LEFT,...RIGHT,...JUMPK].includes(k)) return;
   if(state!=='play'){
     if(state==='dying') return;
+    if(!$('shopOv').hidden) return;
     if(!$('resOv').hidden){ if(k==='Space' && !(document.activeElement instanceof HTMLButtonElement)){ e.preventDefault(); $('resRetry').click(); } return; }
     if(!$('charOv').hidden){   // 캐릭터 화면: ←/→ 고르기, Space 완료
       e.preventDefault();
@@ -1410,7 +1473,7 @@ function drawPlayer(x=P.x, y=P.y){
   if(P.inv>0 && (clock*16|0)%2) ctx.globalAlpha*=.4;
   drawFigure(ctx, CH(), sw, !P.ground);
   ctx.restore();
-  if(P.shield){ ctx.strokeStyle=`rgba(255,210,63,${.55+.2*Math.sin(clock*5)})`; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y-PH*P.sc/2,34*P.sc,0,TAU); ctx.stroke(); }
+  if(P.shield || P.extraShield>0){ ctx.strokeStyle=`rgba(255,210,63,${.55+.2*Math.sin(clock*5)})`; ctx.lineWidth=2.5; ctx.beginPath(); ctx.arc(x,y-PH*P.sc/2,34*P.sc,0,TAU); ctx.stroke(); }
 }
 function drawSlime(){
   const L=camX-10, Rr=camX+VW+10, B=camY+VH+10;
@@ -1453,14 +1516,14 @@ function render(){
 let toastTimer=0;
 function toast(t){ const el=$('toast'); el.textContent=t; el.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>el.classList.remove('show'),1100); }
 function hud(){
-  $('hHpV').textContent=Math.ceil(hp); $('hHpBar').style.transform='scaleX('+(hp/HP_MAX)+')'; $('hHp').classList.toggle('low', hp<30);
+  $('hHpV').textContent=Math.ceil(hp); $('hHpBar').style.transform='scaleX('+(hp/hpMax)+')'; $('hHp').classList.toggle('low', hp<30);
   $('hStage').textContent=level;
   $('hProg').textContent=Math.round(progress()*100)+'%';
   $('hTime').textContent=elapsed.toFixed(1);
   $('hScore').textContent=score.toLocaleString('ko-KR'); $('hCoin').textContent=runCoins;
   $('hFall').textContent=falls;
   const fb=$('hFeverBar');
-  if(fever>0){ $('hFeverV').textContent=fever.toFixed(1)+'초'; fb.style.transform='scaleX('+(fever/FEVER_T)+')'; fb.style.background=`hsl(${(clock*300)%360},90%,55%)`; fb.style.opacity=1; }
+  if(fever>0){ $('hFeverV').textContent=fever.toFixed(1)+'초'; fb.style.transform='scaleX('+(fever/(FEVER_T+.5*ups.fever))+')'; fb.style.background=`hsl(${(clock*300)%360},90%,55%)`; fb.style.opacity=1; }
   else { $('hFeverV').textContent=Math.floor(feverG/FEVER_MAX*100)+'%'; fb.style.transform='scaleX('+(feverG/FEVER_MAX)+')'; fb.style.background=''; fb.style.opacity = feverG>=FEVER_MAX*.9 && (clock*8|0)%2 ? .3 : 1; }
   $('hCombo').hidden=!combo; $('hComboV').textContent=combo+' ×'+comboMult(combo); $('hComboBar').style.transform='scaleX('+(comboT/COMBO_T)+')';
   const on=Object.keys(items).filter(k=>items[k]>0);
@@ -1470,6 +1533,7 @@ const ov=$('ov'), go=$('go'), go2=$('go2');
 let goTo=1, go2To=1;
 function start(){ initAudio(); reset(); state='play'; ov.hidden=true; $('toMenu').disabled=$('restart').disabled=$('restart1').disabled=false; cv.focus(); }
 function startStage(n){
+  scoreMul=1; hpMax=100; P.extraShield=0;
   level=n; startLevel=n; CFG=stageCfg(n); loadBest(); $('resOv').hidden=true; start(); chargeShield(); P.inv=0;
   const msgs=[n+'단계'];
   if(n>1 && newPatsOf(n).length) msgs.push('새 발판 등장!');
@@ -1502,7 +1566,39 @@ function openChars(){ ov.hidden=true; $('charOv').hidden=false; buildChars(); $(
 function closeChars(){ $('charOv').hidden=true; ov.hidden=false; showMenu(); go.focus(); }
 $('goChar').addEventListener('click', openChars);
 $('charOk').addEventListener('click', closeChars);
-addEventListener('keydown', e => { if(e.code==='Escape' && !$('charOv').hidden) closeChars(); });
+addEventListener('keydown', e => { if(e.code==='Escape' && !$('charOv').hidden) closeChars(); if(e.code==='Escape' && !$('shopOv').hidden) closeShop(); });
+let shopTab='boost';
+function renderShop(){
+  $('shopWallet').textContent='보유 🪙 '+wallet.toLocaleString('ko-KR');
+  $('shopHint').textContent = shopTab==='boost' ? '다음 한 판에만 적용돼요 · 메뉴에서 시작할 때 사용' : '한 번 사면 계속 적용돼요';
+  $('tabBoost').setAttribute('aria-selected',String(shopTab==='boost')); $('tabUp').setAttribute('aria-selected',String(shopTab==='up'));
+  const box=$('shopList'); box.innerHTML='';
+  const card=(icon,name,desc,extra,label,can,onBuy)=>{
+    const d=document.createElement('div'); d.className='shopItem';
+    d.innerHTML=`<span class="ic">${icon}</span><b>${name}</b><small>${desc}</small>${extra}`;
+    const b=document.createElement('button'); b.className='buy'; b.textContent=label; b.disabled=!can; b.addEventListener('click',onBuy);
+    d.append(b); box.append(d);
+  };
+  if(shopTab==='boost') for(const it of BOOSTS){
+    const owned=boosts.includes(it.id);
+    card(it.icon, it.name, it.desc, '', owned ? '구매함' : '🪙 '+it.price, !owned && wallet>=it.price, ()=>{
+      wallet-=it.price; boosts.push(it.id); saveShop(); play('coin'); toast(it.name+' 구매 완료'); renderShop();
+    });
+  }
+  else for(const it of UPS){
+    const lv=ups[it.id], max=lv>=UP_PRICE.length, price=UP_PRICE[lv];
+    card(it.icon, it.name, (lv ? '지금: '+it.per(lv) : '아직 없음')+(max ? '' : '<br>다음: '+it.per(lv+1)), `<span class="dots">${'●'.repeat(lv)}${'○'.repeat(UP_PRICE.length-lv)}</span>`,
+      max ? '최대' : '🪙 '+price, !max && wallet>=price, ()=>{
+      wallet-=price; ups[it.id]++; saveShop(); play('item'); toast(it.name+' '+ups[it.id]+'단계!'); renderShop();
+    });
+  }
+}
+function openShop(){ ov.hidden=true; $('shopOv').hidden=false; renderShop(); $('shopOk').focus(); }
+function closeShop(){ $('shopOv').hidden=true; ov.hidden=false; showMenu(); go.focus(); }
+$('goShop').addEventListener('click', openShop);
+$('shopOk').addEventListener('click', closeShop);
+$('tabBoost').addEventListener('click', ()=>{ shopTab='boost'; renderShop(); });
+$('tabUp').addEventListener('click', ()=>{ shopTab='up'; renderShop(); });
 function showMenu(){
   if(!unlocked(CH())) charId='basic';
   const cc=$('curChar'); cc.innerHTML='';
@@ -1512,10 +1608,11 @@ function showMenu(){
   goTo=savedStage; go2To=1;
   go.textContent = savedStage>1 ? `이어하기 (${savedStage}단계)` : '시작하기';
   go2.textContent='1단계부터'; go2.hidden = savedStage<=1;
+  const blB=$('boostLine'); blB.hidden=!boosts.length; blB.textContent='다음 판 부스트: '+boosts.map(b=>BOOSTS.find(x=>x.id===b).icon).join(' ');
   const bl=$('bestLine'); bl.hidden = !bestScore && !wallet; bl.textContent=[bestScore ? '최고 점수 '+bestScore.toLocaleString('ko-KR') : '', bestCombo ? '최고 콤보 '+bestCombo : '', wallet ? '🪙 '+wallet.toLocaleString('ko-KR') : ''].filter(Boolean).join(' · ');
 }
-go.addEventListener('click', ()=>startStage(goTo));
-go2.addEventListener('click', ()=>startStage(go2To));
+go.addEventListener('click', ()=>{ startStage(goTo); applyBoosts(); });
+go2.addEventListener('click', ()=>{ startStage(go2To); applyBoosts(); });
 showMenu();
 function restart(){
   initAudio(); reset(); state='play'; startLevel=level; chargeShield(); P.inv=0;
