@@ -93,6 +93,7 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
       <div>진행<b id="hProg">0%</b></div>
       <div>시간<b id="hTime">0.0</b></div>
       <div>점수<b id="hScore">0</b></div>
+      <div>🪙 코인<b id="hCoin">0</b></div>
       <div>추락<b id="hFall">0</b></div>
       <div id="hFever" style="min-width:74px">피버<b id="hFeverV">0%</b><i id="hFeverBar"></i></div>
       <div id="hCombo" hidden>콤보<b id="hComboV"></b><i id="hComboBar"></i></div>
@@ -128,6 +129,7 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
         <div>먹은 젤리<b id="rJelly">0</b></div>
         <div>최고 콤보<b id="rCombo">0</b></div>
         <div>추락·충돌<b id="rFall">0</b></div>
+        <div>코인<b id="rCoin">+0</b><span class="new" id="rWallet"></span></div>
         <div>캐릭터<b id="rChar">-</b></div>
       </div>
       <div class="btns">
@@ -462,6 +464,7 @@ const SND = {
   roll(v){ SND.shell(v*.7); const t=AC.currentTime; nz(t,700,.18,.35*v,.6,'lowpass'); tn(t,200,90,.14,.18*v); },
   item(){ const t=AC.currentTime; [660,880,1100,1320].forEach((f,i)=>tn(t+i*.06,f,null,.14,.1,'triangle')); },
   smash(){ const t=AC.currentTime; nz(t,1200,.18,.5,.7); tn(t,300,90,.2,.18,'square'); },
+  coin(){ const t=AC.currentTime; tn(t,988,null,.05,.05,'square'); tn(t+.05,1319,null,.12,.05,'square'); },
   warn(){ const t=AC.currentTime; tn(t,880,660,.12,.06,'square'); },
   over(){ const t=AC.currentTime; [523,440,349,262].forEach((f,i)=>tn(t+i*.14,f,null,.22,.12,'triangle')); },
   ouch(){ const t=AC.currentTime; tn(t,520,150,.22,.16,'square'); nz(t,1500,.12,.3,.8); },
@@ -772,7 +775,17 @@ function updateItems(dt){
   }
   if(items.boost>0){ trail.push({x:P.x,y:P.y}); if(trail.length>6) trail.shift(); } else trail.length=0;
 }
+/* ---------------- 코인 ---------------- */
+// 판에서 모은 코인(runCoins)은 판이 끝날 때 보유 코인(wallet)에 더해 저장
+let runCoins=0, wallet=0;
+try{ wallet=+localStorage.getItem('wakppu-side-coins')||0; }catch(e){}
+function bankCoins(){
+  if(!runCoins) return;
+  wallet+=runCoins; runCoins=0;
+  try{ localStorage.setItem('wakppu-side-coins',String(wallet)); }catch(e){}
+}
 function smash(x,y,col){
+  runCoins+=1;
   score+=50; pops.push({x, y:y-20, txt:'+50', life:.7, big:true}); play('smash'); buzz(20);
   for(let k=0;k<16;k++) dust.push({x,y,vx:rnd(-160,160),vy:rnd(-260,-60),life:rnd(.3,.7),col,s:rnd(2,4)});
 }
@@ -786,7 +799,7 @@ function addJellies(from, n){
       for(let x=18; x<tp.w-10; x+=34){
         const o=tp.oTop[Math.round((x+tp.t)/2)];
         if(o==null || (pl.candle!=null && Math.abs(x-pl.candle)<34)) continue;
-        jellies.push({pl, ox:x, oy:o-24, big:false});
+        jellies.push({pl, ox:x, oy:o-24, big:false, coin: Math.random()<.08 ? 1 : 0});   // 은화
       }
     }
     const nx=list[i+1];
@@ -795,10 +808,12 @@ function addJellies(from, n){
     if(gap<40) continue;
     const y0=pl.y+pl.oMin-24, y1=nx.y+nx.oMin-24, peak=Math.min(y0,y1)-Math.min(110,50+gap*.3), c=2*peak-(y0+y1)/2;
     const n=Math.max(2,Math.round(gap/34)), bigAt = gap>120 && Math.random()<.12 ? Math.round(n/2) : -1;
+    const goldAt = bigAt<0 && gap>100 && Math.random()<.06 ? Math.round(n/2) : -1;
     for(let k=1;k<n;k++){
       const u=k/n, big=k===bigAt;
       if(hazards.some(h=>h.type==='spike' && Math.abs(h.x-(x0+gap*u))<34)) continue;
-      jellies.push({pl:null, x:x0+gap*u, y:(1-u)*(1-u)*y0+2*u*(1-u)*c+u*u*y1-(big?40:0), big});
+      const gold = !big && k===goldAt;   // 금화는 아치 꼭대기 위
+      jellies.push({pl:null, x:x0+gap*u, y:(1-u)*(1-u)*y0+2*u*(1-u)*c+u*u*y1-(big?40:gold?30:0), big, coin: gold ? 5 : Math.random()<.08 ? 1 : 0});
     }
   }
 }
@@ -806,9 +821,9 @@ function addJellies(from, n){
 function addItems(j0, n){
   const t = stageCfg(n).chaos, cands = jellies.slice(j0).filter(j=>j.pl && j.pl.kind==='normal' && !j.pl.move);
   let k = 1 + Math.round(Math.random()*(1-t) + 2*t);
-  while(k-- > 0 && cands.length){ const j = cands.splice(Math.random()*cands.length|0, 1)[0]; j.item = pick(Object.keys(ITEM)); j.oy -= 6; }
+  while(k-- > 0 && cands.length){ const j = cands.splice(Math.random()*cands.length|0, 1)[0]; j.item = pick(Object.keys(ITEM)); j.coin = 0; j.oy -= 6; }
   let h = 3 - Math.round(t);   // 체력 젤리 2~3개
-  while(h-- > 0 && cands.length){ const j = cands.splice(Math.random()*cands.length|0, 1)[0]; j.heart = true; j.oy -= 4; }
+  while(h-- > 0 && cands.length){ const j = cands.splice(Math.random()*cands.length|0, 1)[0]; j.heart = true; j.coin = 0; j.oy -= 4; }
 }
 const jx = j => j.pl ? j.pl.x+j.ox : j.x;
 const jy = j => j.pl ? j.pl.y+j.oy : j.y;
@@ -822,8 +837,13 @@ function collectJellies(){
       j.taken=true;
       if(j.item){ useItem(j.item); continue; }
       if(j.heart){ heal(25, x, y-10); play('item'); continue; }
-      runJellies++;
       combo++; comboT=COMBO_T; runCombo=Math.max(runCombo,combo);
+      if(j.coin){   // 코인은 콤보만 잇고 점수는 없음
+        const c=j.coin*(fever>0 ? 2 : 1); runCoins+=c;
+        pops.push({x, y, txt:'+'+c+' 🪙', life:.7, big:j.coin>1}); play('coin');
+        continue;
+      }
+      runJellies++;
       const m=comboMult(combo);
       if(m>comboMult(combo-1)){ toast('×'+m+' 콤보!'); play('check'); }
       if(combo>bestCombo){ bestCombo=combo; try{ localStorage.setItem('wakppu-side-combo',String(bestCombo)); }catch(e){} }
@@ -844,6 +864,16 @@ function drawJellies(){
     if(j.taken) continue;
     const x=jx(j), y=jy(j)+bob;
     if(x<camX-20 || x>camX+VW+20) continue;
+    if(j.coin){   // 은화·금화
+      const g=j.coin>1, R=g?13:8, sq=Math.abs(Math.cos(clock*3+(j.x||j.ox)*.05));   // 빙글빙글
+      ctx.save(); ctx.translate(x,y); ctx.scale(Math.max(.25,sq),1);
+      ctx.fillStyle=g?'#FFC83D':'#DDE2EC'; ctx.strokeStyle=g?'#C98F15':'#9AA3B5'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.arc(0,0,R,0,TAU); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0,0,R*.62,0,TAU); ctx.stroke();
+      if(g){ ctx.fillStyle='#C98F15'; ctx.font=`13px ${FONT}`; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('5',0,1); }
+      ctx.restore();
+      continue;
+    }
     if(j.heart){   // 체력 젤리
       ctx.save(); ctx.translate(x,y); ctx.scale(1.1,1.1);
       ctx.fillStyle='#FF3D63'; ctx.strokeStyle='#fff'; ctx.lineWidth=2;
@@ -893,6 +923,7 @@ function loadBest(){
 function nextStage(g){
   const t = elapsed - stageT0, rec = best===null || t<best;
   if(rec) try{ localStorage.setItem('wakppu-side-best-s'+level, String(t)); }catch(e){}
+  runCoins += level;   // 단계 통과 보너스
   level++; CFG=stageCfg(level); loadBest(); stageT0=elapsed;
   if(builtLevel<level) appendStage();
   checkpoint=g; startX=g.x+60; goalX=goals[level].x; P.maxX=P.x;
@@ -945,9 +976,11 @@ function showResult(){
   $('rTime').textContent=elapsed.toFixed(1)+'초';
   $('rJelly').textContent=runJellies; $('rCombo').textContent=runCombo; $('rFall').textContent=falls+'번';
   $('rChar').textContent=CH().name;
+  $('rCoin').textContent='+'+runCoins; bankCoins(); $('rWallet').textContent='보유 🪙 '+wallet.toLocaleString('ko-KR');
   $('resOv').hidden=false; $('resRetry').focus();
 }
 function reset(){
+  bankCoins();
   buildCourse(); shards=[]; dust=[]; coreFalls=[];
   elapsed=0; stageT0=0; shardCount=0; falls=0; maxIdx=0; seen=new Set(); pops=[]; score=0; beatBest=false; combo=0; fever=0; feverG=0;
   hp=HP_MAX; flashT=0; warnT=0; runJellies=0; runCombo=0; bestAtStart=bestScore;
@@ -1424,7 +1457,7 @@ function hud(){
   $('hStage').textContent=level;
   $('hProg').textContent=Math.round(progress()*100)+'%';
   $('hTime').textContent=elapsed.toFixed(1);
-  $('hScore').textContent=score.toLocaleString('ko-KR');
+  $('hScore').textContent=score.toLocaleString('ko-KR'); $('hCoin').textContent=runCoins;
   $('hFall').textContent=falls;
   const fb=$('hFeverBar');
   if(fever>0){ $('hFeverV').textContent=fever.toFixed(1)+'초'; fb.style.transform='scaleX('+(fever/FEVER_T)+')'; fb.style.background=`hsl(${(clock*300)%360},90%,55%)`; fb.style.opacity=1; }
@@ -1479,7 +1512,7 @@ function showMenu(){
   goTo=savedStage; go2To=1;
   go.textContent = savedStage>1 ? `이어하기 (${savedStage}단계)` : '시작하기';
   go2.textContent='1단계부터'; go2.hidden = savedStage<=1;
-  const bl=$('bestLine'); bl.hidden = !bestScore; bl.textContent='최고 점수 '+bestScore.toLocaleString('ko-KR')+(bestCombo ? ' · 최고 콤보 '+bestCombo : '');
+  const bl=$('bestLine'); bl.hidden = !bestScore && !wallet; bl.textContent=[bestScore ? '최고 점수 '+bestScore.toLocaleString('ko-KR') : '', bestCombo ? '최고 콤보 '+bestCombo : '', wallet ? '🪙 '+wallet.toLocaleString('ko-KR') : ''].filter(Boolean).join(' · ');
 }
 go.addEventListener('click', ()=>startStage(goTo));
 go2.addEventListener('click', ()=>startStage(go2To));
@@ -1491,6 +1524,7 @@ function restart(){
 $('restart').addEventListener('click', restart);
 // 게임을 멈추고 메인 메뉴로
 function goMenu(){
+  bankCoins();
   state='ready'; keys.clear(); touchState.L=touchState.R=touchState.J=false;
   $('toMenu').disabled=$('restart').disabled=$('restart1').disabled=true;
   $('charOv').hidden=true; $('resOv').hidden=true; ov.hidden=false; showMenu(); go.focus();
