@@ -121,7 +121,7 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
 
   <footer>
     <span id="footHelp">A D / ← → 이동 · Space 점프 · 공중에서 2단 점프 · 젤리를 모아요</span>
-    <span style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button class="mute" id="restart" disabled>이 단계 다시 (R)</button><button class="mute" id="restart1" disabled>1단계부터</button><button class="mute" id="mute" aria-pressed="false">소리 끄기</button></span>
+    <span style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end"><button class="mute" id="toMenu" disabled>처음 화면으로</button><button class="mute" id="restart" disabled>이 단계 다시 (R)</button><button class="mute" id="restart1" disabled>1단계부터</button><button class="mute" id="mute" aria-pressed="false">소리 끄기</button></span>
   </footer>
 </main>
 
@@ -1361,7 +1361,7 @@ function hud(){
 }
 const ov=$('ov'), go=$('go'), go2=$('go2');
 let goTo=1, go2To=1;
-function start(){ initAudio(); reset(); state='play'; ov.hidden=true; $('restart').disabled=$('restart1').disabled=false; cv.focus(); }
+function start(){ initAudio(); reset(); state='play'; ov.hidden=true; $('toMenu').disabled=$('restart').disabled=$('restart1').disabled=false; cv.focus(); }
 function startStage(n){
   level=n; CFG=stageCfg(n); loadBest(); start(); chargeShield(); P.inv=0;
   const msgs=[n+'단계'];
@@ -1415,6 +1415,12 @@ function restart(){
   ov.hidden=true; cv.focus(); toast(level+'단계 다시 시작!');
 }
 $('restart').addEventListener('click', restart);
+// 게임을 멈추고 메인 메뉴로
+$('toMenu').addEventListener('click', () => {
+  state='ready'; keys.clear(); touchState.L=touchState.R=touchState.J=false;
+  $('toMenu').disabled=$('restart').disabled=$('restart1').disabled=true;
+  $('charOv').hidden=true; ov.hidden=false; showMenu(); go.focus();
+});
 $('restart1').addEventListener('click', ()=>startStage(1));
 addEventListener('keydown', e => { if(e.code==='KeyR' && !e.repeat && state==='play'){ e.preventDefault(); restart(); } });
 const muteBtn=$('mute');
