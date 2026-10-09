@@ -50,6 +50,7 @@ button{font:inherit}
 .go2:focus-visible{outline:3px solid var(--ink);outline-offset:3px}
 .best{font-family:"Jua",sans-serif;font-size:18px;color:var(--ink)}
 #hHp{min-width:130px}
+#hFever{min-width:74px}
 #hHp i{height:7px;border-radius:4px;background:#FF5C7A}
 #hHp.low i{background:#E8333F;animation:hpblink .5s steps(2) infinite}
 @keyframes hpblink{50%{opacity:.35}}
@@ -88,6 +89,17 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
 .mute{background:none;border:1.5px solid var(--line);color:var(--ink);border-radius:999px;padding:6px 14px;cursor:pointer;white-space:nowrap}
 .mute:disabled{opacity:.4;cursor:default}
 @media (max-width:600px){ header p{font-size:13px} .stage{aspect-ratio:4/3} .hud b{font-size:17px} .overlay{padding:14px;gap:8px} .overlay p{font-size:13px;line-height:1.45} .overlay .keys,#ovText{display:none} .char{width:86px} .shopList{grid-template-columns:repeat(2,1fr);gap:6px} .shopItem{padding:6px 8px} .shopItem small{font-size:11px} .res{grid-template-columns:repeat(3,auto);gap:2px 12px;font-size:12px} .res b{font-size:18px} .char canvas{width:44px;height:52px} #charInfo{min-height:0;font-size:12px} .go{font-size:19px;padding:9px 30px} .go2{font-size:15px;padding:7px 16px} }
+@media (max-width:600px){   /* 좁은 화면 HUD: 체력은 위쪽 막대, 시간·추락·진행은 숨김 */
+  .hud{left:0;right:0;top:0;padding:12px 8px 0;gap:5px}
+  .hud .wide{display:none}
+  .hud div{padding:3px 8px;font-size:10px;border-radius:9px}
+  .hud b{font-size:15px}
+  #hHp{position:absolute;left:0;right:0;top:0;min-width:0;padding:0;border-radius:0;background:rgba(255,255,255,.55);font-size:0}
+  #hHp b{display:none}
+  #hHp i{height:6px;margin:0;border-radius:0 3px 3px 0}
+  #hFever{min-width:52px}
+  .toast{top:34%;font-size:24px}
+}
 </style>
 </head>
 <body>
@@ -102,12 +114,12 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
     <div class="hud">
       <div id="hHp">❤️ 체력<b id="hHpV">100</b><i id="hHpBar"></i></div>
       <div>단계<b id="hStage">1</b></div>
-      <div>진행<b id="hProg">0%</b></div>
-      <div>시간<b id="hTime">0.0</b></div>
+      <div class="wide">진행<b id="hProg">0%</b></div>
+      <div class="wide">시간<b id="hTime">0.0</b></div>
       <div>점수<b id="hScore">0</b></div>
       <div>🪙 코인<b id="hCoin">0</b></div>
-      <div>추락<b id="hFall">0</b></div>
-      <div id="hFever" style="min-width:74px">피버<b id="hFeverV">0%</b><i id="hFeverBar"></i></div>
+      <div class="wide">추락<b id="hFall">0</b></div>
+      <div id="hFever">피버<b id="hFeverV">0%</b><i id="hFeverBar"></i></div>
       <div id="hCombo" hidden>콤보<b id="hComboV"></b><i id="hComboBar"></i></div>
       <div id="hItem" hidden>아이템<b id="hItemV"></b></div>
     </div>
@@ -766,7 +778,20 @@ try{ bestScore=+localStorage.getItem('wakppu-side-score')||0; }catch(e){}
 const ITEM = {magnet:{name:'자석', icon:'🧲', dur:6}, giant:{name:'거대화', icon:'💪', dur:5}, boost:{name:'부스터', icon:'🚀', dur:4}};
 const items = {magnet:0, giant:0, boost:0};
 let trail=[];
-const tough = () => items.giant>0 || items.boost>0;   // 장애물을 부수며 지나감
+/* ---------------- 탈것: 초코 드래곤 ---------------- */
+// 7초 동안 점프 키를 누르면 오르고 떼면 내려옴. 무적, 체력 안 줄어듦. 끝나면 1.5초 천천히 내려옴
+const RIDE_T=7;
+let ride=0, glide=0;
+function startRide(){
+  ride=RIDE_T; glide=0; P.jumps=0; P.ground=null; P.vy=-300;
+  toast('드래곤 탑승!'); play('win'); buzz(40);
+  // 하늘길 젤리: 앞쪽 하늘에 물결 모양 젤리 줄
+  const len = SPEED*(1+CFG.spd)*1.3*RIDE_T*.9, base = Math.max(-200, P.y-120);
+  for(let i=0, x=P.x+90; x<P.x+90+len; i++, x+=34){
+    jellies.push({pl:null, x, y:base+Math.sin(i*.28)*55, big:false, coin: i%30===29 ? 5 : i%9===8 ? 1 : 0});
+  }
+}
+const tough = () => items.giant>0 || items.boost>0 || ride>0 || glide>0;   // 장애물을 부수며 지나감
 // 단단 왁뿌 보호막: 한 번 막고 1초 무적
 /* ---------------- 상점 ---------------- */
 const BOOSTS = [
@@ -865,6 +890,8 @@ function drawPet(){
   ctx.restore();
 }
 function updateItems(dt){
+  if(ride>0 && (ride-=dt)<=0){ ride=0; glide=1.5; P.inv=1.5; }
+  if(glide>0) glide-=dt;
   updatePet(dt);
   if(fever>0){
     if((fever-=dt)<=0) endFever();
@@ -934,6 +961,10 @@ function addItems(j0, n){
   const t = stageCfg(n).chaos, cands = jellies.slice(j0).filter(j=>j.pl && j.pl.kind==='normal' && !j.pl.move);
   let k = 1 + Math.round(Math.random()*(1-t) + 2*t);
   while(k-- > 0 && cands.length){ const j = cands.splice(Math.random()*cands.length|0, 1)[0]; j.item = pick(Object.keys(ITEM)); j.coin = 0; j.oy -= 6; }
+  if(n>=2 && Math.random()<.4 && cands.length){   // 탈것 젤리: 코스 중간쯤 높은 곳
+    const mid = cands.slice().sort((a,b)=>Math.abs(cands.indexOf(a)-cands.length/2)-Math.abs(cands.indexOf(b)-cands.length/2))[0];
+    cands.splice(cands.indexOf(mid),1); mid.ride=true; mid.coin=0; mid.oy-=34;
+  }
   let h = 3 - Math.round(t);   // 체력 젤리 2~3개
   while(h-- > 0 && cands.length){ const j = cands.splice(Math.random()*cands.length|0, 1)[0]; j.heart = true; j.coin = 0; j.oy -= 4; }
 }
@@ -944,9 +975,10 @@ function collectJellies(){
   for(const j of jellies){
     if(j.taken) continue;
     const x=jx(j); if(x<P.x-80 || x>P.x+120) continue;
-    const y=jy(j), r=j.item?16:j.big?18:10;
+    const y=jy(j), r=j.ride?20:j.item?16:j.big?18:10;
     if((Math.abs(x-P.x)<PW*sc+r && Math.abs(y-cy)<PH*sc/2+r) || (petId==='bee' && Math.hypot(x-pet.x,y-pet.y)<20+r)){
       j.taken=true;
+      if(j.ride){ startRide(); continue; }
       if(j.item){ useItem(j.item); continue; }
       if(j.heart){ heal(25, x, y-10); play('item'); continue; }
       combo++; comboT=COMBO_T; runCombo=Math.max(runCombo,combo);
@@ -976,6 +1008,13 @@ function drawJellies(){
     if(j.taken) continue;
     const x=jx(j), y=jy(j)+bob;
     if(x<camX-20 || x>camX+VW+20) continue;
+    if(j.ride){   // 탈것 젤리
+      const RB=['#FF5C8A','#FFB13D','#FFD23F','#4FD97A','#5CC8FF','#A98CFF'];
+      ctx.fillStyle='#FFF4D6'; ctx.beginPath(); ctx.arc(x,y,20,0,TAU); ctx.fill();
+      ctx.lineWidth=5; RB.forEach((c,i)=>{ ctx.strokeStyle=c; ctx.beginPath(); ctx.arc(x,y,20,-clock*3+i*TAU/6,-clock*3+(i+1)*TAU/6); ctx.stroke(); });
+      ctx.font='24px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('🐉',x,y+1);
+      continue;
+    }
     if(j.coin){   // 은화·금화
       const g=j.coin>1, R=g?13:8, sq=Math.abs(Math.cos(clock*3+(j.x||j.ox)*.05));   // 빙글빙글
       ctx.save(); ctx.translate(x,y); ctx.scale(Math.max(.25,sq),1);
@@ -1057,7 +1096,7 @@ function nextStage(g){
 }
 
 function spawnAt(pl){
-  for(const k in items) items[k]=0; P.sc=1; trail.length=0; breakCombo(); if(fever>0) endFever();
+  for(const k in items) items[k]=0; ride=0; glide=0; P.sc=1; trail.length=0; breakCombo(); if(fever>0) endFever();
   P.x = pl.x + Math.min(pl.tp.w*.5, 70); P.y = groundAt(pl, P.x) ?? pl.y; P.vx=0; P.vy=0; P.ground=pl; P.jumps=0; P.spin=0;
 }
 /* ---------------- 체력 ---------------- */
@@ -1071,7 +1110,7 @@ function damage(n){
 }
 function heal(n, x, y){ hp=Math.min(hpMax,hp+n); if(x!=null) pops.push({x, y, txt:'+'+n+' ♥', life:.8, big:true}); }
 function updateHp(dt){
-  hp -= hpDrain()*(1-.04*ups.hp)*dt;
+  if(ride<=0) hp -= hpDrain()*(1-.04*ups.hp)*dt;
   if(hp<30 && (warnT-=dt)<=0){ warnT=1; play('warn'); }
   if(hp<=0){ hp=0; gameOver(); }
 }
@@ -1215,14 +1254,14 @@ function physics(dt){
   if(ix) P.face=ix;
   const acc = P.ground ? (P.ground.slip ? 2.2 : 14) : 7;
   const carry = P.ground ? P.ground.conv*130 : 0;   // 롤케이크 컨베이어
-  const spd = SPEED*(1 + CFG.spd)*(items.boost>0 ? 1.6 : 1);   // 단계가 오를수록 빨라짐
+  const spd = SPEED*(1 + CFG.spd)*(items.boost>0 ? 1.6 : 1)*(ride>0 ? 1.3 : 1);   // 단계가 오를수록 빨라짐
   P.vx += (ix*spd - P.vx)*Math.min(1,acc*dt);
 
   P.coyote = P.ground ? .1 : P.coyote-dt;
   P.jumpBuf -= dt;
   const jumpHeld = held(JUMPK)||touchState.J;
   if(!P.ground && P.coyote<=0 && P.jumps===0) P.jumps=1;
-  if(P.jumpBuf>0){
+  if(P.jumpBuf>0 && ride<=0){
     if(P.coyote>0){
       P.vy=JUMP; P.coyote=0; P.jumpBuf=0; P.jumps=1;
       if(P.ground) crush(P.ground, P.x, P.y, 18*feverMul(), .6, false);
@@ -1233,7 +1272,7 @@ function physics(dt){
     }
   }
   if(P.vy>=0) P.boost=false;
-  if(!jumpHeld && !P.boost && P.vy < -300) P.vy = -300;
+  if(ride<=0 && !jumpHeld && !P.boost && P.vy < -300) P.vy = -300;
   if(P.spin>0) P.spin=Math.max(0,P.spin-dt/.38);
 
   // 가로 이동 + 옆면 충돌
@@ -1244,7 +1283,13 @@ function physics(dt){
 
   // 세로
   const wasGround = P.ground, prevY = P.y, impact = P.vy;
-  P.vy += GRAV*dt; P.y += P.vy*dt;
+  if(ride>0){   // 드래곤: 누르면 상승, 떼면 하강, 슬라임 위에선 튕겨 올림
+    P.vy += ((jumpHeld ? -380 : 170) - P.vy)*Math.min(1,dt*6);
+    if(P.y > SLIME_Y-30 && P.vy>0) P.vy=-420;
+    if(P.y < -240 && P.vy<0) P.vy=0;
+  } else if(glide>0) P.vy = Math.min(P.vy + GRAV*.3*dt, 220);   // 천천히 내려옴
+  else P.vy += GRAV*dt;
+  P.y += P.vy*dt;
   P.ground=null;
   if(P.vy>=0){
     let bestTop=null, bestPl=null;
@@ -1256,6 +1301,7 @@ function physics(dt){
     if(bestPl){ P.y=bestTop; P.vy=0; P.ground=bestPl; P.jumps=0; }
   }
   if(P.ground && P.ground!==wasGround) onLand(P.ground, wasGround ? 0 : impact);
+  if(P.ground && glide>0) glide=0;
   if(P.ground && !P.ground.move && P.ground.kind!=='crumble' && P.ground.kind!=='sink' && !P.ground.blink){ P.lastGround=P.ground; P.lastGX=P.x; }
 
   // 걷는 동안 발밑 왁스가 조금씩 부서짐
@@ -1482,6 +1528,12 @@ function drawShard(s){
   ctx.restore(); ctx.restore();
 }
 function drawPlayerFx(){
+  if(ride>0 && !(ride<1.5 && (clock*10|0)%2)){   // 드래곤 (끝나기 전 깜빡임)
+    // 캐릭터 발밑에 드래곤 등이 오도록 아래쪽에 그림
+    ctx.save(); ctx.translate(P.x-4*P.face, P.y+Math.sin(clock*12)*2); ctx.scale(-P.face*P.sc, P.sc);
+    ctx.font='52px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillText('🐉',0,-8); ctx.restore();
+  }
+  if(glide>0){ ctx.font='26px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('🪂', P.x, P.y-PH*P.sc-14); }
   if(items.magnet>0){ ctx.strokeStyle=`rgba(92,200,255,${.35+.15*Math.sin(clock*8)})`; ctx.lineWidth=2; ctx.beginPath(); ctx.arc(P.x,P.y-PH*P.sc/2,40*P.sc+Math.sin(clock*6)*4,0,TAU); ctx.stroke(); }
   trail.forEach((q,i)=>{ ctx.globalAlpha=.08+i*.04; drawPlayer(q.x,q.y); });
   ctx.globalAlpha=1;
@@ -1580,7 +1632,8 @@ function hud(){
   else { $('hFeverV').textContent=Math.floor(feverG/FEVER_MAX*100)+'%'; fb.style.transform='scaleX('+(feverG/FEVER_MAX)+')'; fb.style.background=''; fb.style.opacity = feverG>=FEVER_MAX*.9 && (clock*8|0)%2 ? .3 : 1; }
   $('hCombo').hidden=!combo; $('hComboV').textContent=combo+' ×'+comboMult(combo); $('hComboBar').style.transform='scaleX('+(comboT/COMBO_T)+')';
   const on=Object.keys(items).filter(k=>items[k]>0);
-  $('hItem').hidden=!on.length; $('hItemV').textContent=on.map(k=>ITEM[k].icon+' '+items[k].toFixed(1)).join('  ');
+  const txt=on.map(k=>ITEM[k].icon+' '+items[k].toFixed(1)); if(ride>0) txt.unshift('🐉 '+ride.toFixed(1));
+  $('hItem').hidden=!txt.length; $('hItemV').textContent=txt.join('  ');
 }
 const ov=$('ov'), go=$('go'), go2=$('go2');
 let goTo=1, go2To=1;
