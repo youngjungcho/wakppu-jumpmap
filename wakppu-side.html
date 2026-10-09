@@ -164,8 +164,14 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
     </div>
     <div class="overlay" id="charOv" hidden>
       <h2>캐릭터 선택</h2>
+      <div class="shopTabs" role="tablist">
+        <button class="tab" role="tab" id="tabChar" aria-selected="true">캐릭터</button>
+        <button class="tab" role="tab" id="tabPet" aria-selected="false">펫</button>
+      </div>
       <div class="chars" id="chars" role="radiogroup" aria-label="캐릭터"></div>
       <p id="charInfo"></p>
+      <div class="best" id="petWallet" hidden></div>
+      <div class="shopList" id="pets" hidden></div>
       <div class="btns"><button class="go" id="charOk">선택 완료</button></div>
     </div>
   </div>
@@ -815,7 +821,51 @@ function addFever(n, x, y){
     for(let k=0;k<n*2;k++) dust.push({x:x+rnd(-30,30),y:y+rnd(-10,10),vx:rnd(-140,140),vy:rnd(-260,-60),life:rnd(.3,.6),col:'#FFD23F',s:rnd(2,3.5)});
   } else if((feverG=Math.min(FEVER_MAX, feverG+n))>=FEVER_MAX) startFever();
 }
+/* ---------------- 펫 ---------------- */
+const PETS = [
+  {id:'none',  icon:'',   name:'펫 없음',     desc:'혼자 달려요', price:0},
+  {id:'dog',   icon:'🐶', name:'젤리 강아지', desc:'8초마다 앞쪽 젤리 하나를 큰 골드 젤리로 바꿔요', price:0},
+  {id:'bee',   icon:'🐝', name:'꿀벌',        desc:'앞에서 날며 닿는 젤리·코인을 대신 먹어요', price:150},
+  {id:'cloud', icon:'☁️', name:'구름',        desc:'단계마다 한 번, 슬라임에서 피해 없이 건져 올려요', price:250},
+  {id:'fairy', icon:'🧚', name:'불꽃 요정',   desc:'피버 게이지를 초당 1씩 채워요', price:300},
+  {id:'bunny', icon:'🐰', name:'하트 토끼',   desc:'15초마다 체력 +8을 회복해요', price:400}
+];
+let petOwned=['none','dog'], petId='dog';
+try{ petOwned=JSON.parse(localStorage.getItem('wakppu-side-pets')||'null')||petOwned; const v=localStorage.getItem('wakppu-side-pet'); if(petOwned.includes(v)) petId=v; }catch(e){}
+const savePets = () => { try{ localStorage.setItem('wakppu-side-pets',JSON.stringify(petOwned)); localStorage.setItem('wakppu-side-pet',petId); }catch(e){} };
+const pet = {x:0, y:0, t:0, cloudUsed:false};
+const PET = () => PETS.find(p=>p.id===petId);
+function resetPet(){ pet.x=P.x-40; pet.y=P.y-70; pet.t=0; pet.cloudUsed=false; }
+function petSay(txt){ pops.push({x:pet.x, y:pet.y-18, txt, life:.9, big:true}); }
+function updatePet(dt){
+  if(petId==='none') return;
+  const tx = petId==='bee' ? P.x+46*P.face : P.x-40*P.face, ty = P.y-PH*P.sc-18 + Math.sin(clock*3)*5;
+  pet.x += (tx-pet.x)*Math.min(1,dt*6); pet.y += (ty-pet.y)*Math.min(1,dt*6);
+  pet.t += dt;
+  if(petId==='dog' && pet.t>=8){   // 앞쪽 젤리를 큰 젤리로
+    const j=jellies.filter(j=>!j.taken && !j.item && !j.heart && !j.coin && !j.big && jx(j)>P.x+60 && jx(j)<P.x+420).sort((a,b)=>jx(a)-jx(b))[0];
+    if(j){ j.big=true; pet.t=0; petSay('★'); for(let k=0;k<8;k++) dust.push({x:jx(j),y:jy(j),vx:rnd(-80,80),vy:rnd(-120,-20),life:rnd(.3,.5),col:'#FFD23F',s:rnd(1.5,3)}); }
+  }
+  if(petId==='fairy' && fever<=0){ feverG=Math.min(FEVER_MAX, feverG+dt); if(feverG>=FEVER_MAX) startFever(); }
+  if(petId==='bunny' && pet.t>=15){ pet.t=0; heal(8, pet.x, pet.y-10); play('item'); }
+}
+// 구름: 슬라임에 빠지면 단계마다 한 번 마지막 발판으로
+function cloudRescue(){
+  if(petId!=='cloud' || pet.cloudUsed || !P.lastGround || !plats.includes(P.lastGround)) return false;
+  const pl=P.lastGround, gy=groundAt(pl, P.lastGX);
+  if(gy==null) return false;
+  pet.cloudUsed=true; P.x=P.lastGX; P.y=gy; P.vx=0; P.vy=0; P.ground=pl; P.jumps=0; P.inv=1;
+  pet.x=P.x-40; pet.y=P.y-70; toast('구름이 구해줬어요!'); play('item'); return true;
+}
+function drawPet(){
+  if(petId==='none' || state==='ready') return;
+  ctx.save(); ctx.font=`${Math.round(24*Math.min(1.4,P.sc))}px sans-serif`; ctx.textAlign='center'; ctx.textBaseline='middle';
+  if(petId==='fairy'){ const gl=ctx.createRadialGradient(pet.x,pet.y,1,pet.x,pet.y,22); gl.addColorStop(0,'rgba(255,160,60,.5)'); gl.addColorStop(1,'rgba(255,160,60,0)'); ctx.fillStyle=gl; ctx.beginPath(); ctx.arc(pet.x,pet.y,22,0,TAU); ctx.fill(); }
+  if(P.face<0 || petId==='bee'){ ctx.translate(pet.x,pet.y); ctx.scale(P.face<0?-1:1,1); ctx.fillText(PET().icon,0,0); } else ctx.fillText(PET().icon,pet.x,pet.y);
+  ctx.restore();
+}
 function updateItems(dt){
+  updatePet(dt);
   if(fever>0){
     if((fever-=dt)<=0) endFever();
     if((feverTick-=dt)<=0){ feverTick=.14; play('tick',.8); }
@@ -893,9 +943,9 @@ function collectJellies(){
   const sc=P.sc, cy=P.y-PH*sc/2;
   for(const j of jellies){
     if(j.taken) continue;
-    const x=jx(j); if(x<P.x-80 || x>P.x+80) continue;
+    const x=jx(j); if(x<P.x-80 || x>P.x+120) continue;
     const y=jy(j), r=j.item?16:j.big?18:10;
-    if(Math.abs(x-P.x)<PW*sc+r && Math.abs(y-cy)<PH*sc/2+r){
+    if((Math.abs(x-P.x)<PW*sc+r && Math.abs(y-cy)<PH*sc/2+r) || (petId==='bee' && Math.hypot(x-pet.x,y-pet.y)<20+r)){
       j.taken=true;
       if(j.item){ useItem(j.item); continue; }
       if(j.heart){ heal(25, x, y-10); play('item'); continue; }
@@ -992,7 +1042,7 @@ function nextStage(g){
   const newChar = level>savedStage && CHARS.find(c=>c.at===level);
   heal(10);
   if(level>savedStage){ savedStage=level; try{ localStorage.setItem('wakppu-side-stage',String(savedStage)); }catch(e){} }
-  chargeShield();
+  chargeShield(); pet.cloudUsed=false;
   // 지나온 체크포인트 뒤쪽 발판 정리
   plats = plats.filter(p => p.x+p.tp.w > g.x-600);
   jellies = jellies.filter(j => !j.taken && (j.pl ? plats.includes(j.pl) : j.x > g.x-600));
@@ -1124,6 +1174,7 @@ addEventListener('keydown', e => {
     if(!$('shopOv').hidden) return;
     if(!$('resOv').hidden){ if(k==='Space' && !(document.activeElement instanceof HTMLButtonElement)){ e.preventDefault(); $('resRetry').click(); } return; }
     if(!$('charOv').hidden){   // 캐릭터 화면: ←/→ 고르기, Space 완료
+      if(!$('pets').hidden) return;
       e.preventDefault();
       if(LEFT.includes(k)||RIGHT.includes(k)){
         const open=CHARS.filter(unlocked), i=open.findIndex(c=>c.id===charId);
@@ -1205,6 +1256,7 @@ function physics(dt){
     if(bestPl){ P.y=bestTop; P.vy=0; P.ground=bestPl; P.jumps=0; }
   }
   if(P.ground && P.ground!==wasGround) onLand(P.ground, wasGround ? 0 : impact);
+  if(P.ground && !P.ground.move && P.ground.kind!=='crumble' && P.ground.kind!=='sink' && !P.ground.blink){ P.lastGround=P.ground; P.lastGX=P.x; }
 
   // 걷는 동안 발밑 왁스가 조금씩 부서짐
   if(P.ground && Math.abs(P.vx)>50){
@@ -1233,7 +1285,7 @@ function physics(dt){
       spawnAt(checkpoint); toast('아야!'); damage(15); return;
     }
   }
-  if(P.y > SLIME_Y+28){
+  if(P.y > SLIME_Y+28 && !cloudRescue()){
     falls++; play('splash'); buzz(50);
     for(let k=0;k<24;k++) dust.push({x:P.x+rnd(-20,20),y:SLIME_Y,vx:rnd(-120,120),vy:rnd(-360,-120),life:rnd(.5,.9),col:'#3FD45A',s:rnd(3,6),slime:true});
     spawnAt(checkpoint); toast('다시!'); damage(20);
@@ -1496,6 +1548,7 @@ function render(){
   for(const s of shards) if(s.x>camX-60 && s.x<camX+VW+60) drawShard(s);
   drawHazards();
   drawJellies();
+  drawPet();
   drawPlayerFx();
   drawPlayer();
   for(const d of dust){ ctx.globalAlpha=Math.min(1,d.life*2.5); ctx.fillStyle=d.slime?d.col:rgba(d.col,.9); ctx.beginPath(); ctx.arc(d.x,d.y,d.s,0,TAU); ctx.fill(); }
@@ -1531,9 +1584,9 @@ function hud(){
 }
 const ov=$('ov'), go=$('go'), go2=$('go2');
 let goTo=1, go2To=1;
-function start(){ initAudio(); reset(); state='play'; ov.hidden=true; $('toMenu').disabled=$('restart').disabled=$('restart1').disabled=false; cv.focus(); }
+function start(){ initAudio(); reset(); resetPet(); state='play'; ov.hidden=true; $('toMenu').disabled=$('restart').disabled=$('restart1').disabled=false; cv.focus(); }
 function startStage(n){
-  scoreMul=1; hpMax=100; P.extraShield=0;
+  scoreMul=1; hpMax=100; P.extraShield=0; P.lastGround=null;
   level=n; startLevel=n; CFG=stageCfg(n); loadBest(); $('resOv').hidden=true; start(); chargeShield(); P.inv=0;
   const msgs=[n+'단계'];
   if(n>1 && newPatsOf(n).length) msgs.push('새 발판 등장!');
@@ -1562,7 +1615,29 @@ function setChar(id){
     if(on){ const box=$('chars'); box.scrollLeft = b.offsetLeft - (box.clientWidth-b.offsetWidth)/2; }
   }
 }
-function openChars(){ ov.hidden=true; $('charOv').hidden=false; buildChars(); $('chars').querySelector('[aria-checked="true"]').focus(); }
+let charTab='char';
+function setCharTab(t){
+  charTab=t;
+  $('tabChar').setAttribute('aria-selected',String(t==='char')); $('tabPet').setAttribute('aria-selected',String(t==='pet'));
+  $('chars').hidden=$('charInfo').hidden = t!=='char'; $('pets').hidden=$('petWallet').hidden = t!=='pet';
+  if(t==='pet') renderPets();
+}
+function renderPets(){
+  $('petWallet').textContent='보유 🪙 '+wallet.toLocaleString('ko-KR');
+  const box=$('pets'); box.innerHTML='';
+  for(const p of PETS){
+    const d=document.createElement('div'); d.className='shopItem';
+    d.innerHTML=`<span class="ic">${p.icon||'🚫'}</span><b>${p.name}</b><small>${p.desc}</small>`;
+    const b=document.createElement('button'); b.className='buy';
+    const own=petOwned.includes(p.id);
+    if(own){ b.textContent = petId===p.id ? '데리고 가는 중' : '데리고 가기'; b.disabled = petId===p.id; b.addEventListener('click',()=>{ petId=p.id; savePets(); renderPets(); }); }
+    else { b.textContent='🪙 '+p.price+' 구매'; b.disabled = wallet<p.price; b.addEventListener('click',()=>{ wallet-=p.price; petOwned.push(p.id); petId=p.id; saveShop(); savePets(); play('coin'); toast(p.name+' 구매 완료'); renderPets(); }); }
+    d.append(b); box.append(d);
+  }
+}
+$('tabChar').addEventListener('click', ()=>setCharTab('char'));
+$('tabPet').addEventListener('click', ()=>setCharTab('pet'));
+function openChars(){ ov.hidden=true; $('charOv').hidden=false; buildChars(); setCharTab('char'); $('chars').querySelector('[aria-checked="true"]').focus(); }
 function closeChars(){ $('charOv').hidden=true; ov.hidden=false; showMenu(); go.focus(); }
 $('goChar').addEventListener('click', openChars);
 $('charOk').addEventListener('click', closeChars);
@@ -1604,7 +1679,7 @@ function showMenu(){
   const cc=$('curChar'); cc.innerHTML='';
   const c=document.createElement('canvas'); c.width=60; c.height=70;
   const g=c.getContext('2d'); g.scale(2,2); g.translate(15,33); g.scale(.5,.5); drawFigure(g, CH(), .3, false);
-  cc.append(c, document.createTextNode(CH().name));
+  cc.append(c, document.createTextNode(CH().name + (petId!=='none' ? ' + '+PET().icon+' '+PET().name : '')));
   goTo=savedStage; go2To=1;
   go.textContent = savedStage>1 ? `이어하기 (${savedStage}단계)` : '시작하기';
   go2.textContent='1단계부터'; go2.hidden = savedStage<=1;
