@@ -6,4 +6,5 @@ SRC="$(cd "$(dirname "$0")" && pwd)/wakppu-side.html"
 DEST="$HOME/healing-site-backend/public/games/wakppu/index.html"
 mkdir -p "$(dirname "$DEST")"
 cp "$SRC" "$DEST"
-echo "복사 완료: $DEST"
+cp "$(dirname "$SRC")/og.png" "$(dirname "$DEST")/og.png"   # 링크 미리보기 이미지
+echo "복사 완료: $DEST (+ og.png)"
