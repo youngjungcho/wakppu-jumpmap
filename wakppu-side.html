@@ -64,6 +64,13 @@ button{font:inherit}
 .char:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 .shopTabs{display:flex;gap:6px}
 .mlist{display:flex;flex-direction:column;gap:8px;width:min(100%,460px)}
+.rk{display:grid;grid-template-columns:34px 1fr auto;gap:2px 10px;align-items:center;width:100%;background:var(--tray);border:1.5px solid var(--line);border-radius:12px;padding:6px 12px;font:inherit;color:var(--ink);text-align:left;cursor:pointer}
+.rk .md{grid-row:1/3;font-family:"Jua",sans-serif;font-size:19px;text-align:center}
+.rk b{font-family:"Jua",sans-serif;font-weight:400;font-size:17px}
+.rk small{color:var(--soft);font-size:12px}
+.rk .det{grid-column:2/-1;display:none;color:var(--soft);font-size:12px}
+.rk[aria-expanded="true"] .det{display:block}
+.rk:focus-visible{outline:3px solid var(--ink);outline-offset:2px}
 .mrow{display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;background:var(--tray);border:1.5px solid var(--line);border-radius:14px;padding:8px 12px;text-align:left}
 .mrow b{font-family:"Jua",sans-serif;font-weight:400;font-size:15px;color:var(--ink)}
 .mrow small{color:var(--soft);font-size:12px}
@@ -153,12 +160,13 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
         <button class="go2" id="goChar">캐릭터 선택</button>
         <button class="go2" id="goShop">상점</button>
         <button class="go2" id="goMission">미션</button>
+        <button class="go2" id="goRank">기록판</button>
       </div>
     </div>
     <div class="overlay" id="resOv" hidden>
       <h2 id="resTitle">게임 오버</h2>
       <div class="res">
-        <div>점수<b id="rScore">0</b><span class="new" id="rNew" hidden>최고 기록!</span></div>
+        <div>점수<b id="rScore">0</b><span class="new" id="rNew" hidden>최고 기록!</span><span class="new" id="rRank" hidden></span></div>
         <div>도달 단계<b id="rStage">1</b></div>
         <div>달린 시간<b id="rTime">0초</b></div>
         <div>먹은 젤리<b id="rJelly">0</b></div>
@@ -171,6 +179,15 @@ footer{display:flex;justify-content:space-between;align-items:center;gap:12px;ma
         <button class="go" id="resRetry">다시 달리기</button>
         <button class="go2" id="resMenu">메인 메뉴</button>
       </div>
+    </div>
+    <div class="overlay" id="rankOv" hidden>
+      <h2>기록판</h2>
+      <div class="shopTabs" role="tablist">
+        <button class="tab" role="tab" id="tabBest" aria-selected="true">최고 기록</button>
+        <button class="tab" role="tab" id="tabRecent" aria-selected="false">최근 기록</button>
+      </div>
+      <div class="mlist" id="rankList"></div>
+      <div class="btns"><button class="go" id="rankOk">닫기</button></div>
     </div>
     <div class="overlay" id="missionOv" hidden>
       <h2>일일 미션</h2>
@@ -1181,7 +1198,22 @@ function gameOver(){
   breakCombo(); play('over'); buzz(80);
   $('toMenu').disabled=$('restart').disabled=$('restart1').disabled=true;
 }
+/* ---------------- 기록판 ---------------- */
+// 게임 오버로 끝난 판만 저장: 점수 상위 10판 + 최근 10판
+let runs={best:[], recent:[]};
+try{ Object.assign(runs, JSON.parse(localStorage.getItem('wakppu-side-runs')||'{}')); }catch(e){}
+function recordRun(){
+  const d=new Date(), p=n=>String(n).padStart(2,'0');
+  const rec={score, from:startLevel, to:level, time:+elapsed.toFixed(1), combo:runCombo, coins:runCoins, char:charId, pet:petId,
+    date:(d.getMonth()+1)+'/'+d.getDate()+' '+p(d.getHours())+':'+p(d.getMinutes()), t:Date.now()};
+  runs.recent.unshift(rec); runs.recent=runs.recent.slice(0,10);
+  runs.best.push(rec); runs.best.sort((a,b)=>b.score-a.score || a.t-b.t); runs.best=runs.best.slice(0,10);
+  try{ localStorage.setItem('wakppu-side-runs',JSON.stringify(runs)); }catch(e){}
+  const i=runs.best.indexOf(rec); return i<0 ? 0 : i+1;
+}
 function showResult(){
+  const rank = recordRun();
+  $('rRank').hidden = !rank; $('rRank').textContent = ' 기록판 '+rank+'위!';
   state='over';
   $('rScore').textContent=score.toLocaleString('ko-KR'); $('rNew').hidden = !(score>bestAtStart && score>0);
   $('rStage').textContent = startLevel===level ? level+'단계' : startLevel+'→'+level+'단계';
@@ -1271,7 +1303,7 @@ addEventListener('keydown', e => {
   if(![...LEFT,...RIGHT,...JUMPK].includes(k)) return;
   if(state!=='play'){
     if(state==='dying') return;
-    if(!$('shopOv').hidden || !$('missionOv').hidden) return;
+    if(!$('shopOv').hidden || !$('missionOv').hidden || !$('rankOv').hidden) return;
     if(!$('resOv').hidden){ if(k==='Space' && !(document.activeElement instanceof HTMLButtonElement)){ e.preventDefault(); $('resRetry').click(); } return; }
     if(!$('charOv').hidden){   // 캐릭터 화면: ←/→ 고르기, Space 완료
       if(!$('pets').hidden) return;
@@ -1755,7 +1787,29 @@ function openChars(){ ov.hidden=true; $('charOv').hidden=false; buildChars(); se
 function closeChars(){ $('charOv').hidden=true; ov.hidden=false; showMenu(); go.focus(); }
 $('goChar').addEventListener('click', openChars);
 $('charOk').addEventListener('click', closeChars);
-addEventListener('keydown', e => { if(e.code==='Escape' && !$('charOv').hidden) closeChars(); if(e.code==='Escape' && !$('shopOv').hidden) closeShop(); if(e.code==='Escape' && !$('missionOv').hidden) closeMissions(); });
+addEventListener('keydown', e => { if(e.code==='Escape' && !$('charOv').hidden) closeChars(); if(e.code==='Escape' && !$('shopOv').hidden) closeShop(); if(e.code==='Escape' && !$('missionOv').hidden) closeMissions(); if(e.code==='Escape' && !$('rankOv').hidden) closeRank(); });
+let rankTab='best';
+function renderRank(){
+  $('tabBest').setAttribute('aria-selected',String(rankTab==='best')); $('tabRecent').setAttribute('aria-selected',String(rankTab==='recent'));
+  const list = runs[rankTab], box=$('rankList'); box.innerHTML='';
+  if(!list.length){ box.innerHTML='<small style="color:var(--soft);text-align:center">아직 기록이 없어요. 한 판 달려 보세요!</small>'; return; }
+  list.forEach((r,i)=>{
+    const ch=CHARS.find(c=>c.id===r.char), pe=PETS.find(p=>p.id===r.pet);
+    const md = rankTab==='best' ? (['🥇','🥈','🥉'][i] || (i+1)) : '·';
+    const b=document.createElement('button'); b.className='rk'; b.setAttribute('aria-expanded','false');
+    b.innerHTML=`<span class="md">${md}</span><b>${r.score.toLocaleString('ko-KR')}점</b><small>${r.date}</small>`+
+      `<small>${r.from===r.to ? r.to+'단계' : r.from+'→'+r.to+'단계'} · ${ch?ch.name:''}${pe&&pe.icon?' '+pe.icon:''}</small><small></small>`+
+      `<span class="det">시간 ${r.time}초 · 최고 콤보 ${r.combo} · 코인 +${r.coins}</span>`;
+    b.addEventListener('click',()=>b.setAttribute('aria-expanded', String(b.getAttribute('aria-expanded')!=='true')));
+    box.append(b);
+  });
+}
+function openRank(){ ov.hidden=true; $('rankOv').hidden=false; rankTab='best'; renderRank(); $('rankOk').focus(); }
+function closeRank(){ $('rankOv').hidden=true; ov.hidden=false; showMenu(); go.focus(); }
+$('goRank').addEventListener('click', openRank);
+$('rankOk').addEventListener('click', closeRank);
+$('tabBest').addEventListener('click', ()=>{ rankTab='best'; renderRank(); });
+$('tabRecent').addEventListener('click', ()=>{ rankTab='recent'; renderRank(); });
 let mTimer=0;
 function renderMissions(){
   const d=ensureDaily(), box=$('missionList'); box.innerHTML='';
