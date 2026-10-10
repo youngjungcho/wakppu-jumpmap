@@ -801,6 +801,7 @@ function drawHazards(){
 let jellyMark=0, jellies=[], pops=[], score=0, bestScore=0, beatBest=false;
 /* 콤보: 1.5초 안에 다음 젤리를 먹으면 이어지고, 많이 이을수록 점수 배수 */
 const COMBO_T=1.5;
+const comboWin = () => petId==='unicorn' ? 2.5 : COMBO_T;
 let combo=0, comboT=0, bestCombo=0;
 try{ bestCombo=+localStorage.getItem('wakppu-side-combo')||0; }catch(e){}
 const comboMult = c => c>=100 ? 5 : c>=50 ? 4 : c>=25 ? 3 : c>=10 ? 2 : 1;
@@ -856,7 +857,7 @@ function mProg(id, n){
 }
 const mDone = () => { const d=ensureDaily(); return d.ids.filter(id=>(d.prog[id]||0)>=MISSION(id).goal).length; };
 const mClaimable = () => { const d=ensureDaily(); return d.ids.some(id=>(d.prog[id]||0)>=MISSION(id).goal && !d.claimed[id]) || (d.ids.every(id=>d.claimed[id]) && !d.bonus); };
-function addCoins(n){ runCoins+=n; mProg('coin', n); }
+function addCoins(n){ if(charId==='lucky') n=Math.round(n*1.5); runCoins+=n; mProg('coin', n); }
 function startRide(){
   mProg('ride',1);
   ride=RIDE_T; glide=0; P.jumps=0; P.ground=null; P.vy=-300;
@@ -895,7 +896,7 @@ function applyBoosts(){
   for(const b of boosts){
     if(b==='magnet') items.magnet=10;
     if(b==='shield') P.extraShield=1;
-    if(b==='hp'){ hpMax=130; hp=130; }
+    if(b==='hp'){ hpMax+=30; hp=hpMax; }
     if(b==='fever') feverG=FEVER_MAX/2;
     if(b==='score') scoreMul=1.1;
   }
@@ -907,8 +908,8 @@ function useShield(){
   if(P.shield) P.shield=false; else if(P.extraShield>0) P.extraShield--; else return false;
   P.inv=1; toast('보호막!'); return true;
 }
-const chargeShield = () => { P.shield = charId==='tough'; };
-function useItem(k){ mProg('item',1); items[k]=ITEM[k].dur+.5*ups.item; toast(ITEM[k].name+'!'); play('item'); }
+const chargeShield = () => { P.shield = charId==='tough'; if(charId==='big') items.giant=Math.max(items.giant,3); };   // 단계 시작 때 충전
+function useItem(k){ mProg('item',1); items[k]=(ITEM[k].dur+.5*ups.item)*(k==='giant' && charId==='big' ? 2 : 1); toast(ITEM[k].name+'!'); play('item'); }
 /* 왁스 피버: 왁스 조각을 모으면 게이지가 차고, 가득 차면 6초간 왁스가 폭발하듯 부서짐 */
 const FEVER_MAX=120, FEVER_T=6;
 let fever=0, feverG=0, feverTick=0;
@@ -920,7 +921,7 @@ function addFever(n, x, y){
     const pts=addScore(5*n*comboMult(combo));
     pops.push({x, y:y-10, txt:'+'+pts, life:.5, big:true});
     for(let k=0;k<n*2;k++) dust.push({x:x+rnd(-30,30),y:y+rnd(-10,10),vx:rnd(-140,140),vy:rnd(-260,-60),life:rnd(.3,.6),col:'#FFD23F',s:rnd(2,3.5)});
-  } else if((feverG=Math.min(FEVER_MAX, feverG+n))>=FEVER_MAX) startFever();
+  } else if((feverG=Math.min(FEVER_MAX, feverG+n*(charId==='fire' ? 2 : 1)))>=FEVER_MAX) startFever();
 }
 /* ---------------- 펫 ---------------- */
 const PETS = [
@@ -929,7 +930,12 @@ const PETS = [
   {id:'bee',   icon:'🐝', name:'꿀벌',        desc:'앞에서 날며 닿는 젤리·코인을 대신 먹어요', price:150},
   {id:'cloud', icon:'☁️', name:'구름',        desc:'단계마다 한 번, 슬라임에서 피해 없이 건져 올려요', price:250},
   {id:'fairy', icon:'🧚', name:'불꽃 요정',   desc:'피버 게이지를 초당 1씩 채워요', price:300},
-  {id:'bunny', icon:'🐰', name:'하트 토끼',   desc:'15초마다 체력 +8을 회복해요', price:400}
+  {id:'bunny', icon:'🐰', name:'하트 토끼',   desc:'15초마다 체력 +8을 회복해요', price:400},
+  {id:'cat',     icon:'🐱', name:'행운 고양이', desc:'코인을 먹을 때 25% 확률로 2배', price:200},
+  {id:'turtle',  icon:'🐢', name:'거북이',      desc:'추락·충돌 피해가 절반', price:220},
+  {id:'fox',     icon:'🦊', name:'여우',        desc:'20초마다 앞쪽에 아이템 젤리를 만들어요', price:320},
+  {id:'penguin', icon:'🐧', name:'펭귄',        desc:'12초마다 앞쪽 장애물 하나를 얼려 부숴요', price:380},
+  {id:'unicorn', icon:'🦄', name:'유니콘',      desc:'콤보 제한 시간 1.5초 → 2.5초', price:500}
 ];
 let petOwned=['none','dog'], petId='dog';
 try{ petOwned=JSON.parse(localStorage.getItem('wakppu-side-pets')||'null')||petOwned; const v=localStorage.getItem('wakppu-side-pet'); if(petOwned.includes(v)) petId=v; }catch(e){}
@@ -949,6 +955,17 @@ function updatePet(dt){
   }
   if(petId==='fairy' && fever<=0){ feverG=Math.min(FEVER_MAX, feverG+dt); if(feverG>=FEVER_MAX) startFever(); }
   if(petId==='bunny' && pet.t>=15){ pet.t=0; heal(8, pet.x, pet.y-10); play('item'); }
+  if(petId==='fox' && pet.t>=20){   // 앞쪽에 아이템 젤리
+    pet.t=0; jellies.push({pl:null, x:P.x+240, y:P.y-70, big:false, coin:0, item:pick(Object.keys(ITEM))}); petSay('🎁');
+  }
+  if(petId==='penguin' && pet.t>=12){   // 앞쪽 장애물 하나 얼려 부수기
+    const ahead=[];
+    for(const h of hazards){ const x=hzX(h); if(x>P.x+30 && x<P.x+520) ahead.push({x, y:hzY(h), h}); }
+    for(const pl of plats){ if(pl.candle!=null && !pl.gone){ const x=pl.x+pl.candle; if(x>P.x+30 && x<P.x+520) ahead.push({x, y:candleTop(pl)-20, pl}); } }
+    ahead.sort((a,b)=>a.x-b.x);
+    const a=ahead[0];
+    if(a){ pet.t=0; if(a.h) hazards.splice(hazards.indexOf(a.h),1); else a.pl.candle=null; smash(a.x, a.y, '#9FE3FF'); petSay('❄'); }
+  }
 }
 // 구름: 슬라임에 빠지면 단계마다 한 번 마지막 발판으로
 function cloudRescue(){
@@ -1056,10 +1073,10 @@ function collectJellies(){
       j.taken=true;
       if(j.ride){ startRide(); continue; }
       if(j.item){ useItem(j.item); continue; }
-      if(j.heart){ heal(25, x, y-10); play('item'); mProg('heart',1); continue; }
-      combo++; comboT=COMBO_T; runCombo=Math.max(runCombo,combo); mProg('combo', combo);
+      if(j.heart){ heal(charId==='heart' ? 35 : 25, x, y-10); play('item'); mProg('heart',1); continue; }
+      combo++; comboT=comboWin(); runCombo=Math.max(runCombo,combo); mProg('combo', combo);
       if(j.coin){   // 코인은 콤보만 잇고 점수는 없음
-        const c=j.coin*(fever>0 ? 2 : 1); addCoins(c);
+        const c=j.coin*(fever>0 ? 2 : 1)*(petId==='cat' && Math.random()<.25 ? 2 : 1); addCoins(c);
         pops.push({x, y, txt:'+'+c+' 🪙', life:.7, big:j.coin>1}); play('coin');
         continue;
       }
@@ -1183,6 +1200,7 @@ const HP_MAX=100;
 let hp=HP_MAX, flashT=0, warnT=0, dieT=0, startLevel=1, runJellies=0, runCombo=0, bestAtStart=0;
 const hpDrain = () => 1.2 + 1.2*Math.min(1,(level-1)/19);
 function damage(n){
+  if(petId==='turtle') n=Math.ceil(n/2);
   hp=Math.max(0,hp-n); flashT=.35;
   if(hp<=0) gameOver();
 }
@@ -1347,7 +1365,7 @@ function physics(dt){
   if(ix) P.face=ix;
   const acc = P.ground ? (P.ground.slip ? 2.2 : 14) : 7;
   const carry = P.ground ? P.ground.conv*130 : 0;   // 롤케이크 컨베이어
-  const spd = SPEED*(1 + CFG.spd)*(items.boost>0 ? 1.6 : 1)*(ride>0 ? 1.3 : 1);   // 단계가 오를수록 빨라짐
+  const spd = SPEED*(1 + CFG.spd)*(items.boost>0 ? 1.6 : 1)*(ride>0 ? 1.3 : 1)*(charId==='bolt' ? 1.15 : 1);   // 단계가 오를수록 빨라짐
   P.vx += (ix*spd - P.vx)*Math.min(1,acc*dt);
 
   P.coyote = P.ground ? .1 : P.coyote-dt;
@@ -1638,7 +1656,12 @@ const CHARS = [
   {id:'sweet',   name:'달콤 왁뿌', desc:'젤리 점수 +30%',     long:'젤리 점수를 30% 더 받아요. 콤보·피버 배수와도 함께 곱해져요.', at:2, c:{leg:'#C2457A', leg2:'#E06C9F', arm:'#F07FB0', body:'#FF9CC8', hair:'#7A4630'}},
   {id:'magnet',  name:'자석 왁뿌', desc:'항상 약한 자석',     long:'반경 80px 안의 젤리가 항상 끌려와요. 자석 아이템을 먹으면 더 넓어져요.', at:3, c:{leg:'#5B6475', leg2:'#7B8597', arm:'#9AA3B5', body:'#B8C0CF', hair:'#2A2140'}},
   {id:'feather', name:'깃털 왁뿌', desc:'3단 점프',           long:'공중에서 한 번 더 뛸 수 있어요. 3단 점프로 높은 탑도 쉽게 올라가요.', at:4, c:{leg:'#8FA3C9', leg2:'#B5C4E0', arm:'#DCE3F2', body:'#F4F6FB', hair:'#FFD23F'}},
-  {id:'tough',   name:'단단 왁뿌', desc:'단계마다 1번 보호막', long:'단계마다 장애물 한 번을 보호막으로 막아요. 막은 뒤 1초 동안 무적이에요.', at:5, c:{leg:'#4A2818', leg2:'#6B3B22', arm:'#86523A', body:'#9C6444', hair:'#2A2140'}}
+  {id:'tough',   name:'단단 왁뿌', desc:'단계마다 1번 보호막', long:'단계마다 장애물 한 번을 보호막으로 막아요. 막은 뒤 1초 동안 무적이에요.', at:5, c:{leg:'#4A2818', leg2:'#6B3B22', arm:'#86523A', body:'#9C6444', hair:'#2A2140'}},
+  {id:'bolt',  name:'번개 왁뿌', desc:'이동 속도 +15%',       long:'번개처럼 빨라요. 이동 속도가 15% 빨라져요.', at:6, c:{leg:'#B8860B', leg2:'#D4A017', arm:'#F2C94C', body:'#FFD84A', hair:'#FFB000'}},
+  {id:'lucky', name:'행운 왁뿌', desc:'코인 +50%',            long:'은화·금화·보너스로 받는 코인이 모두 50% 늘어나요.', at:7, c:{leg:'#2E7D4F', leg2:'#3FA066', arm:'#5CC28A', body:'#6FD69C', hair:'#7A4630'}},
+  {id:'big',   name:'거인 왁뿌', desc:'단계마다 거대화 3초',  long:'단계를 시작할 때마다 3초 동안 거대화해요. 거대화 아이템은 2배 오래 가요.', at:8, c:{leg:'#B4541E', leg2:'#D0692A', arm:'#F08A3C', body:'#FF9A4D', hair:'#5A3220'}},
+  {id:'fire',  name:'불꽃 왁뿌', desc:'피버 게이지 2배',      long:'왁스 조각 하나로 피버 게이지가 2칸씩 차요.', at:9, c:{leg:'#8E1B1B', leg2:'#B22222', arm:'#E0443A', body:'#FF5C4D', hair:'#FF8A2E'}},
+  {id:'heart', name:'하트 왁뿌', desc:'최대 체력 130',        long:'최대 체력 130으로 시작하고, 체력 젤리로 10 더 회복해요.', at:10, c:{leg:'#C7CBD6', leg2:'#DDE1EA', arm:'#F2F3F7', body:'#FFFFFF', hair:'#2A2140'}}
 ];
 let charId='basic'; try{ const v=localStorage.getItem('wakppu-side-char'); if(CHARS.some(c=>c.id===v)) charId=v; }catch(e){}
 const CH = () => CHARS.find(c=>c.id===charId);
@@ -1646,6 +1669,7 @@ const unlocked = c => c.at <= savedStage;
 // 발이 (0,0)에 오도록 캐릭터를 그림
 function drawFigure(g, ch, sw, armUp){
   const c=ch.c;
+  if(ch.id==='big'){ g.save(); g.scale(1.15,1.15); }
   const limb=(px,py,w,h,ang,col)=>{ g.save(); g.translate(px,py); g.rotate(ang); g.fillStyle=col; g.fillRect(-w/2,0,w,h); g.restore(); };
   limb(0,-17,8,17, -sw, c.leg);
   limb(0,-36,7,16, sw*.9, c.arm);
@@ -1657,8 +1681,13 @@ function drawFigure(g, ch, sw, armUp){
   if(ch.id==='sweet'){ g.fillStyle='#FF5C8A'; g.beginPath(); g.moveTo(0,-57); g.lineTo(-9,-63); g.lineTo(-9,-53); g.closePath(); g.moveTo(0,-57); g.lineTo(9,-63); g.lineTo(9,-53); g.closePath(); g.fill(); g.fillRect(-2,-59,4,4); }
   if(ch.id==='magnet'){ g.fillStyle='#8A93A6'; g.beginPath(); g.arc(0,-53,10,Math.PI,0); g.fill(); g.fillStyle='#E8333F'; g.fillRect(-2,-66,4,4); }
   if(ch.id==='feather'){ g.fillStyle='#FFFFFF'; g.fillRect(-9,-58,18,4); g.strokeStyle='#5CC8FF'; g.lineWidth=3; g.lineCap='round'; g.beginPath(); g.moveTo(-4,-58); g.quadraticCurveTo(-10,-70,-2,-74); g.stroke(); }
+  if(ch.id==='bolt'){ g.fillStyle=c.hair; for(const dx of [-8,-2,4]){ g.beginPath(); g.moveTo(dx,-56); g.lineTo(dx+3,-64); g.lineTo(dx+6,-56); g.fill(); } }
+  if(ch.id==='lucky'){ g.fillStyle='#2E9E5B'; g.fillRect(-10,-59,20,5); g.fillRect(-6,-63,12,4); g.fillStyle='#7BE07B'; for(const [dx,dy] of [[-2,-67],[2,-67],[0,-70]]){ g.beginPath(); g.arc(dx,dy,2.2,0,TAU); g.fill(); } }
+  if(ch.id==='fire'){ g.fillStyle='#FFB13D'; for(const [dx,h] of [[-7,9],[-1,13],[5,10]]){ g.beginPath(); g.moveTo(dx-3,-56); g.quadraticCurveTo(dx,-56-h,dx+3,-56); g.fill(); } }
+  if(ch.id==='heart'){ g.fillStyle='#FFFFFF'; g.fillRect(-9,-57,18,3); g.fillStyle='#FF3D63'; g.beginPath(); g.moveTo(0,-56); g.bezierCurveTo(-7,-61,-4,-67,0,-63); g.bezierCurveTo(4,-67,7,-61,0,-56); g.fill(); }
   if(ch.id==='tough'){ g.fillStyle='#6B4A2E'; g.fillRect(-10,-59,20,8); g.fillStyle='#C9A27E'; g.fillRect(-10,-52,3,6); g.beginPath(); g.moveTo(-6,-59); g.lineTo(-3,-66); g.lineTo(0,-59); g.fill(); }
   limb(0,-36,7,16, armUp ? -2.4 : -sw*.9, c.body);
+  if(ch.id==='big') g.restore();
 }
 function drawPlayer(x=P.x, y=P.y){
   const f=P.face;
@@ -1723,7 +1752,7 @@ function hud(){
   const fb=$('hFeverBar');
   if(fever>0){ $('hFeverV').textContent=fever.toFixed(1)+'초'; fb.style.transform='scaleX('+(fever/(FEVER_T+.5*ups.fever))+')'; fb.style.background=`hsl(${(clock*300)%360},90%,55%)`; fb.style.opacity=1; }
   else { $('hFeverV').textContent=Math.floor(feverG/FEVER_MAX*100)+'%'; fb.style.transform='scaleX('+(feverG/FEVER_MAX)+')'; fb.style.background=''; fb.style.opacity = feverG>=FEVER_MAX*.9 && (clock*8|0)%2 ? .3 : 1; }
-  $('hCombo').hidden=!combo; $('hComboV').textContent=combo+' ×'+comboMult(combo); $('hComboBar').style.transform='scaleX('+(comboT/COMBO_T)+')';
+  $('hCombo').hidden=!combo; $('hComboV').textContent=combo+' ×'+comboMult(combo); $('hComboBar').style.transform='scaleX('+(comboT/comboWin())+')';
   const on=Object.keys(items).filter(k=>items[k]>0);
   const txt=on.map(k=>ITEM[k].icon+' '+items[k].toFixed(1)); if(ride>0) txt.unshift('🐉 '+ride.toFixed(1));
   $('hItem').hidden=!txt.length; $('hItemV').textContent=txt.join('  ');
@@ -1732,7 +1761,7 @@ const ov=$('ov'), go=$('go'), go2=$('go2');
 let goTo=1, go2To=1;
 function start(){ initAudio(); reset(); resetPet(); state='play'; ov.hidden=true; $('toMenu').disabled=$('restart').disabled=$('restart1').disabled=false; cv.focus(); }
 function startStage(n){
-  scoreMul=1; hpMax=100; P.extraShield=0; P.lastGround=null;
+  scoreMul=1; hpMax = charId==='heart' ? 130 : 100; P.extraShield=0; P.lastGround=null;
   level=n; startLevel=n; CFG=stageCfg(n); loadBest(); $('resOv').hidden=true; start(); chargeShield(); P.inv=0;
   const msgs=[n+'단계'];
   if(n>1 && newPatsOf(n).length) msgs.push('새 발판 등장!');
